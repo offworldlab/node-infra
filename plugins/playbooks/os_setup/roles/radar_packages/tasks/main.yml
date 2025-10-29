@@ -1,0 +1,167 @@
+---
+# Playbook: radar_packages
+# Version: 0.1.0
+# 
+# Purpose: Pre-load system requirements for blah2 radar application
+# 
+# This playbook installs the essential system components needed to run blah2 on Raspberry Pi 5:
+#   1. Docker CE 27.x & Docker Compose v2 - Container runtime for blah2 services
+#   2. System dependencies (graphviz, libusb, libudev, expect)
+#   3. SDRplay API v3.15.2 - Hardware driver for RSPDuo SDR
+#
+# Target: Raspberry Pi 5 fleet running Debian Bookworm (12.x)
+#
+# Note: This does not currently install the blah2-arm.
+# @TO-DO Fetch blah2-arm via containers from a GHCR 
+
+# 0. Update system package cache
+- name: Update apt package cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+# 1. Docker installation
+# 1a) Install prerequisites for Docker repo
+- name: Install Docker prerequisites
+  apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+      - software-properties-common
+    state: present
+
+# 1b) Add Docker's GPG key
+- name: Add Docker's official GPG key
+  shell: |
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/debian/gpg \
+      | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    chmod a+r /etc/apt/keyrings/docker.gpg
+  args:
+    creates: /etc/apt/keyrings/docker.gpg
+
+# 1c) Add Docker's apt repository 
+- name: Add Docker repository
+  apt_repository:
+    repo: "deb [arch=arm64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian {{ ansible_lsb.codename | default('bookworm') }} stable"
+    state: present
+    filename: docker
+
+# 1d) Install Docker Engine and plugins
+- name: Install Docker Engine
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+    update_cache: yes
+
+# 1e) Enable docker service on boot
+- name: Enable Docker service for boot
+  file:
+    src: /lib/systemd/system/docker.service
+    dest: /etc/systemd/system/multi-user.target.wants/docker.service
+    state: link
+
+# 2. Install system dependencies
+- name: Install required system packages
+  apt:
+    name:
+      - graphviz        # Required by blah2 processing
+      - libusb-1.0-0    # Required by SDRplay service
+      - libudev1        # Required for udev device detection
+      - expect          # Required for SDRplay interactive installer
+    state: present
+
+# 3. Install SDRplay API
+# 3a) Create directory 
+- name: Create SDRplay lib directory
+  file:
+    path: /opt/blah2/lib/sdrplay-3.15.2
+    state: directory
+    mode: '0755'
+
+# 3b) Download installer
+- name: Download SDRplay API installer
+  get_url:
+    url: https://www.sdrplay.com/software/SDRplay_RSP_API-Linux-3.15.2.run
+    dest: /opt/blah2/lib/sdrplay-3.15.2/SDRplay_RSP_API-Linux-3.15.2.run
+    mode: '0755'
+
+# 3c) Extract SDRplay API
+- name: Extract SDRplay API 
+  shell: ./SDRplay_RSP_API-Linux-3.15.2.run --tar -xvf -C .
+  args:
+    chdir: /opt/blah2/lib/sdrplay-3.15.2
+    creates: /opt/blah2/lib/sdrplay-3.15.2/install_lib.sh
+
+# 3d) Install SDRplay API with expect
+- name: Install SDRplay API library (automated)
+  shell: |
+    expect << 'EOF'
+    set timeout 120
+    log_user 1
+    
+    spawn ./install_lib.sh
+    
+    # Press RETURN to view license
+    expect "Press RETURN"
+    send "\r"
+    
+    # Wait for 'more' pager, then quit
+    sleep 1
+    send "q"
+    
+    # Accept license
+    expect "y/n"
+    send "y\r"
+    
+    # Accept defaults
+    expect "y/n"
+    send "y\r"
+    
+    expect eof
+    EOF
+    
+    ldconfig
+  args:
+    chdir: /opt/blah2/lib/sdrplay-3.15.2
+    creates: /usr/local/lib/libsdrplay_api.so
+  register: sdrplay_output
+
+# - name: Show SDRplay installation output
+#   debug:
+#     var: sdrplay_output.stdout_lines
+#   when: sdrplay_output.changed
+
+# 3e) Verify udev rules installation
+- name: Verify SDRplay udev rules exist
+  stat:
+    path: /etc/udev/rules.d/66-sdrplay.rules
+  register: udev_rules
+
+- name: Confirm udev rules installation
+  debug:
+    msg: "SDRplay udev rules installed: {{ udev_rules.stat.exists }}"
+
+# 3f) Configure udev trigger on boot
+- name: Ensure rc.local exists with proper structure
+  copy:
+    dest: /etc/rc.local
+    content: |
+      #!/bin/bash
+      exit 0
+    mode: '0755'
+    force: no
+
+- name: Trigger udev on boot for hardware detection
+  lineinfile:
+    path: /etc/rc.local
+    insertbefore: "^exit 0"
+    line: "udevadm control --reload-rules && udevadm trigger"
