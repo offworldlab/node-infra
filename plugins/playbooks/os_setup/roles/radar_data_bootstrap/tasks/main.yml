@@ -130,7 +130,40 @@
     recurse: yes
   ignore_errors: yes
 
-# 4. Cleanup
+# 4. Create systemd service for first-boot container startup, retry untill sucessful
+- name: Create blah2 first-boot systemd service
+  copy:
+    dest: /etc/systemd/system/blah2-firstboot.service
+    mode: '0644'
+    owner: root
+    group: root
+    content: |
+      [Unit]
+      Description=Start blah2 containers on first boot
+      After=docker.service network-online.target
+      Requires=docker.service
+      ConditionPathExists=!/data/blah2/.started
+
+      [Service]
+      Type=oneshot
+      WorkingDirectory=/data/blah2
+      ExecStart=/usr/bin/docker compose pull
+      ExecStart=/usr/bin/docker compose up -d
+      ExecStartPost=/usr/bin/touch /data/blah2/.started
+      Restart=on-failure
+      RestartSec=60
+      StartLimitBurst=0
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Enable blah2 first-boot service
+  file:
+    src: /etc/systemd/system/blah2-firstboot.service
+    dest: /etc/systemd/system/multi-user.target.wants/blah2-firstboot.service
+    state: link
+
+# 5. Cleanup
 - name: Remove temporary clone
   file:
     path: /tmp/blah2-arm
