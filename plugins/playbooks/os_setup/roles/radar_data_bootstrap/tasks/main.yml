@@ -1,0 +1,90 @@
+---
+# Playbook: radar_data_bootstrap
+# Version: 0.1.0
+# 
+# Purpose: Bootstrap /data/blah2/ with application files from blah2-arm repo
+# 
+# This populates the persistent /data partition with:
+#   - docker-compose.yml
+#   - Configuration files
+#   - Scripts (sdrplay-restart.sh)
+#   - Web assets (HTML, nginx config)
+#   - Test data (optional)
+#
+# Files are fetched from blah2-arm repo at a pinned commit/tag
+
+# Variables to set in defaults:
+# blah2_repo_url: "https://github.com/offworldlab/blah2-arm.git"
+# blah2_version: "abc123def"  # commit hash or tag
+
+# 1. Create base directory structure
+- name: Create /data/blah2 directory structure
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - /data/blah2
+    - /data/blah2/config
+    - /data/blah2/scripts
+    - /data/blah2/html
+    - /data/blah2/host
+    - /data/blah2/save
+    - /data/blah2/test
+
+# 2. Clone blah2-arm at pinned version
+- name: Clone blah2-arm repository
+  git:
+    repo: "{{ blah2_repo_url }}"
+    dest: /tmp/blah2-arm
+    version: "{{ blah2_version }}"
+
+# 3. Copy files to /data/blah2/
+- name: Copy docker-compose.yml
+  copy:
+    src: /tmp/blah2-arm/deploy/docker-compose.prod.yml
+    dest: /data/blah2/docker-compose.yml
+    mode: '0644'
+    remote_src: yes
+
+- name: Copy config directory
+  copy:
+    src: /tmp/blah2-arm/config/
+    dest: /data/blah2/config/
+    mode: '0644'
+    remote_src: yes
+
+- name: Copy sdrplay-restart.sh script
+  copy:
+    src: /tmp/blah2-arm/sdrplay-restart.sh
+    dest: /data/blah2/scripts/sdrplay-restart.sh
+    mode: '0755'
+    remote_src: yes
+
+- name: Copy html directory
+  copy:
+    src: /tmp/blah2-arm/html/
+    dest: /data/blah2/html/
+    mode: '0644'
+    remote_src: yes
+
+- name: Copy host directory
+  copy:
+    src: /tmp/blah2-arm/host/
+    dest: /data/blah2/host/
+    mode: '0644'
+    remote_src: yes
+
+- name: Copy test directory (optional)
+  copy:
+    src: /tmp/blah2-arm/test/
+    dest: /data/blah2/test/
+    mode: '0644'
+    remote_src: yes
+  ignore_errors: yes
+
+# 4. Cleanup
+- name: Remove temporary clone
+  file:
+    path: /tmp/blah2-arm
+    state: absent

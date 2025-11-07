@@ -72,6 +72,9 @@
     - role: radar_packages # Install Radar Packages
       become: True
       become_user: root
+    - role: radar_data_bootstrap # Configure /data/ persistent partition
+      become: True
+      become_user: root
     - role: get_edi_io.debian_setup.gitops_user
       become: True
       become_user: root
