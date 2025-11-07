@@ -23,6 +23,8 @@
     path: "{{ item }}"
     state: directory
     mode: '0755'
+    owner: root
+    group: root
   loop:
     - /data/blah2
     - /data/blah2/config
@@ -45,42 +47,87 @@
     src: /tmp/blah2-arm/deploy/docker-compose.prod.yml
     dest: /data/blah2/docker-compose.yml
     mode: '0644'
+    owner: root
+    group: root
     remote_src: yes
 
 - name: Copy config directory
   copy:
     src: /tmp/blah2-arm/config/
     dest: /data/blah2/config/
-    mode: '0644'
+    owner: root
+    group: root
     remote_src: yes
+
+- name: Fix config directory permissions
+  file:
+    path: /data/blah2/config
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+    recurse: yes
 
 - name: Copy sdrplay-restart.sh script
   copy:
     src: /tmp/blah2-arm/sdrplay-restart.sh
     dest: /data/blah2/scripts/sdrplay-restart.sh
     mode: '0755'
+    owner: root
+    group: root
     remote_src: yes
 
 - name: Copy html directory
   copy:
     src: /tmp/blah2-arm/html/
     dest: /data/blah2/html/
-    mode: '0644'
+    owner: root
+    group: root
     remote_src: yes
+
+- name: Fix html directory permissions
+  file:
+    path: /data/blah2/html
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+    recurse: yes
 
 - name: Copy host directory
   copy:
     src: /tmp/blah2-arm/host/
     dest: /data/blah2/host/
-    mode: '0644'
+    owner: root
+    group: root
     remote_src: yes
+
+- name: Fix host directory permissions
+  file:
+    path: /data/blah2/host
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+    recurse: yes
 
 - name: Copy test directory (optional)
   copy:
     src: /tmp/blah2-arm/test/
     dest: /data/blah2/test/
-    mode: '0644'
+    owner: root
+    group: root
     remote_src: yes
+  ignore_errors: yes
+
+- name: Fix test directory permissions (optional)
+  file:
+    path: /data/blah2/test
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+    recurse: yes
   ignore_errors: yes
 
 # 4. Cleanup
