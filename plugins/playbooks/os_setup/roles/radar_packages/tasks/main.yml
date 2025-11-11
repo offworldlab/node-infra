@@ -8,11 +8,10 @@
 #   1. Docker CE 27.x & Docker Compose v2 - Container runtime for blah2 services
 #   2. System dependencies (graphviz, libusb, libudev, expect)
 #   3. SDRplay API v3.15.2 - Hardware driver for RSPDuo SDR
+#   4. Mender Docker Update Module and requirements
 #
 # Target: Raspberry Pi 5 fleet running Debian Bookworm (12.x)
 #
-# Note: This does not currently install the blah2-arm.
-# @TO-DO Fetch blah2-arm via containers from a GHCR 
 
 # 0. Update system package cache
 - name: Update apt package cache
@@ -165,3 +164,42 @@
     path: /etc/rc.local
     insertbefore: "^exit 0"
     line: "udevadm control --reload-rules && udevadm trigger"
+
+# 4. Install Mender app update module for Docker Compose OTA updates
+- name: Install tree and xdelta3 (mender update module)
+  apt:
+    name:
+      - tree
+      - xdelta3
+    state: present
+    update_cache: yes
+
+- name: Create app-modules directory
+  file:
+    path: /usr/share/mender/app-modules/v1
+    state: directory
+    mode: '0755'
+
+- name: Install Mender app update module
+  get_url:
+    url: https://raw.githubusercontent.com/mendersoftware/app-update-module/1.1.0/src/app
+    dest: /usr/share/mender/modules/v3/app
+    mode: '0755'
+
+- name: Install Docker Compose sub-module
+  get_url:
+    url: https://raw.githubusercontent.com/mendersoftware/app-update-module/1.1.0/src/app-modules/docker-compose
+    dest: /usr/share/mender/app-modules/v1/docker-compose
+    mode: '0755'
+
+- name: Install mender-app.conf
+  get_url:
+    url: https://raw.githubusercontent.com/mendersoftware/app-update-module/1.1.0/conf/mender-app.conf
+    dest: /etc/mender/mender-app.conf
+    mode: '0644'
+
+- name: Install mender-app-docker-compose.conf
+  get_url:
+    url: https://raw.githubusercontent.com/mendersoftware/app-update-module/1.1.0/conf/mender-app-docker-compose.conf
+    dest: /etc/mender/mender-app-docker-compose.conf
+    mode: '0644'
