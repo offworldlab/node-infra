@@ -1,6 +1,6 @@
 ---
 # Playbook: radar_data_bootstrap
-# Version: 0.1.0
+# Version: 0.1.1
 # 
 # Purpose: Bootstrap /data/blah2/ with application files from blah2-arm repo
 # 
@@ -28,9 +28,7 @@
   loop:
     - /data/blah2
     - /data/blah2/config
-    - /data/blah2/scripts
-    - /data/blah2/html
-    - /data/blah2/host
+    - /data/blah2/script
     - /data/blah2/save
     - /data/blah2/test
 
@@ -71,47 +69,13 @@
 - name: Copy sdrplay-restart.sh script
   copy:
     src: /tmp/blah2-arm/sdrplay-restart.sh
-    dest: /data/blah2/scripts/sdrplay-restart.sh
+    dest: /data/blah2/script/sdrplay-restart.sh
     mode: '0755'
     owner: root
     group: root
     remote_src: yes
 
-- name: Copy html directory
-  copy:
-    src: /tmp/blah2-arm/html/
-    dest: /data/blah2/html/
-    owner: root
-    group: root
-    remote_src: yes
-
-- name: Fix html directory permissions
-  file:
-    path: /data/blah2/html
-    state: directory
-    mode: '0755'
-    owner: root
-    group: root
-    recurse: yes
-
-- name: Copy host directory
-  copy:
-    src: /tmp/blah2-arm/host/
-    dest: /data/blah2/host/
-    owner: root
-    group: root
-    remote_src: yes
-
-- name: Fix host directory permissions
-  file:
-    path: /data/blah2/host
-    state: directory
-    mode: '0755'
-    owner: root
-    group: root
-    recurse: yes
-
-- name: Copy test directory (optional)
+- name: Copy test directory #Optional could remove?
   copy:
     src: /tmp/blah2-arm/test/
     dest: /data/blah2/test/
@@ -120,7 +84,7 @@
     remote_src: yes
   ignore_errors: yes
 
-- name: Fix test directory permissions (optional)
+- name: Fix test directory permissions #Optional could remove?
   file:
     path: /data/blah2/test
     state: directory
