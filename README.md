@@ -42,10 +42,10 @@ After deploying retina-node, visit `http://retina.local` to add and manage SSH k
 To enable Cloudflare tunnel forwarding, create a token file on the node:
 
 ```bash
-mkdir -p /data/cloudflared
-echo "YOUR_TUNNEL_TOKEN" > /data/cloudflared/tunnel-token
-chmod 600 /data/cloudflared/tunnel-token
-systemctl start cloudflared
+sudo mkdir -p /data/cloudflared
+echo "YOUR_TUNNEL_TOKEN" | sudo tee /data/cloudflared/tunnel-token
+sudo chmod 600 /data/cloudflared/tunnel-token
+sudo systemctl restart cloudflared
 ```
 
 The token persists across OTA updates.
