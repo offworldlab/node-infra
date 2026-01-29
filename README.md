@@ -13,23 +13,9 @@ Mender-enabled OS images for Raspberry Pi 5 radar nodes. The image comes pre-loa
 - **WiFi Connect** captive portal for network setup
 - **Mender client** for OTA updates
 
-## SDRconnect
-
-Run in server mode (headless device):
-```bash
-/opt/sdrconnect/SDRconnect --server
-```
-
-Connect from a SDRconnect client on another machine using the Pi's IP.
-
-> **Warning:** Conflicts with blah2 - stop containers first:
-> ```bash
-> cd /data/mender-app/retina-node/manifests && docker compose -p retina-node down
-> ```
-
 ## Quick Start
 
-1. **Flash the image** to an SD card using Raspberry Pi Imager
+1. **Flash the image** to an SD card (64GB+) using Raspberry Pi Imager
    - Download from [Releases](https://github.com/offworldlabs/node-infra/releases)
    - Select `owl-os-vx.x.x.img` as custom OS
    - Do not apply OS customisation settings
@@ -50,6 +36,19 @@ Connect from a SDRconnect client on another machine using the Pi's IP.
 ### Node Configuration
 
 After deploying retina-node, visit `http://retina.local` to add and manage SSH keys. See the readme in [retina-node](https://github.com/offworldlabs/retina-node) for updating config (TODO config via GUI).
+
+### Cloudflare Tunnel (Optional)
+
+To enable Cloudflare tunnel forwarding, create a token file on the node:
+
+```bash
+sudo mkdir -p /data/cloudflared
+echo "YOUR_TUNNEL_TOKEN" | sudo tee /data/cloudflared/tunnel-token
+sudo chmod 600 /data/cloudflared/tunnel-token
+sudo systemctl restart cloudflared
+```
+
+The token persists across OTA updates.
 
 ### SSH Access
 
@@ -82,6 +81,19 @@ This triggers the GHA workflow (`.github/workflows/build_os.yml`) which:
 
 > **Note:** Currently triggers on any `os-v*` tag. TODO: Change to only PR merges into main.
 
+## SDRconnect
+
+Run in server mode (headless device):
+```bash
+/opt/sdrconnect/SDRconnect --server
+```
+
+Connect from a SDRconnect client on another machine using the Pi's IP.
+
+> **Warning:** Conflicts with blah2 - stop containers first:
+> ```bash
+> cd /data/mender-app/retina-node/manifests && docker compose -p retina-node down
+> ```
 
 ### Mender Tenant Token
 

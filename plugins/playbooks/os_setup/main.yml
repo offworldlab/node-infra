@@ -86,6 +86,9 @@
     - role: radar_data_bootstrap # Configure /data/ persistent partition
       become: True
       become_user: root
+    - role: cloudflared_persistence # Cloudflare tunnel with persistent token
+      become: True
+      become_user: root
     - role: get_edi_io.debian_setup.gitops_user
       become: True
       become_user: root

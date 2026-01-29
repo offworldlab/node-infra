@@ -1,0 +1,54 @@
+---
+# Playbook: cloudflared_persistence
+# Version: 0.1.0
+#
+# Purpose: Configure cloudflared tunnel with persistent token storage
+#
+# Token is stored at /data/cloudflared/tunnel-token (survives OTA updates).
+# Service only starts if token file exists and is non-empty.
+#
+# To enable on a node:
+#   mkdir -p /data/cloudflared
+#   echo "eyJhIjoi..." > /data/cloudflared/tunnel-token
+#   chmod 600 /data/cloudflared/tunnel-token
+#   systemctl start cloudflared
+
+# 1. Create /data/cloudflared directory for persistent token storage
+- name: Create /data/cloudflared directory
+  file:
+    path: /data/cloudflared
+    state: directory
+    mode: '0700'
+    owner: root
+    group: root
+
+# 2. Create systemd service that reads token from /data
+- name: Create cloudflared tunnel service
+  copy:
+    dest: /etc/systemd/system/cloudflared.service
+    mode: '0644'
+    owner: root
+    group: root
+    content: |
+      [Unit]
+      Description=Cloudflare Tunnel
+      After=network-online.target
+      Wants=network-online.target
+      ConditionFileNotEmpty=/data/cloudflared/tunnel-token
+
+      [Service]
+      TimeoutStartSec=15
+      Type=notify
+      ExecStart=/bin/bash -c '/usr/bin/cloudflared --no-autoupdate tunnel run --token $(cat /data/cloudflared/tunnel-token)'
+      Restart=on-failure
+      RestartSec=5s
+
+      [Install]
+      WantedBy=multi-user.target
+
+# 3. Enable service (will auto-skip on boot if no token file)
+- name: Enable cloudflared service
+  file:
+    src: /etc/systemd/system/cloudflared.service
+    dest: /etc/systemd/system/multi-user.target.wants/cloudflared.service
+    state: link
