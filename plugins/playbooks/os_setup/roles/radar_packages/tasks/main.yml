@@ -87,6 +87,8 @@
       - expect          # Required for SDRplay interactive installer
       - wireless-tools  # Required for iwgetid WiFi connection check
       - python3-flask   # Required for retina-gui web interface
+      - python3-yaml    # Required for retina-gui config YAML parsing
+      - python3-pydantic  # Required for retina-gui form validation
     state: present
 
 # 2a. Install Avahi for mDNS .local hostname resolution
