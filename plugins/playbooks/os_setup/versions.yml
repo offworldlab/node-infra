@@ -49,5 +49,5 @@ blah2_version: "v0.1.5"  # Update to specific tag/commit when releasing
 
 # retina-gui web interface
 retina_gui_repo_url: "https://github.com/offworldlabs/retina-gui.git"
-retina_gui_version: "v0.1.2"  # IPv6 dual-stack for mDNS support
+retina_gui_version: "v0.1.4"  # Navbar, footer, version display, restart button
 
