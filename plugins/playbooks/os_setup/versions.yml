@@ -45,5 +45,5 @@ mender_app_base_url: "https://raw.githubusercontent.com/mendersoftware/app-updat
 
 # retina-gui web interface
 retina_gui_repo_url: "https://github.com/offworldlabs/retina-gui.git"
-retina_gui_version: "v0.1.4"  # Navbar, footer, version display, restart button
+retina_gui_version: "v0.1.5"  # Read node_id from Mender device identity
 
