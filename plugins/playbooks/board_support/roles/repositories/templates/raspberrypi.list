@@ -1,0 +1,1 @@
+deb [signed-by=/usr/share/keyrings/raspberrypi-archive-keyring.gpg] http://archive.raspberrypi.com/debian/ {{ ansible_distribution_release }} main

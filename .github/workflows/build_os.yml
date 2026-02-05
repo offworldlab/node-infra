@@ -14,6 +14,7 @@ on:
     tags:
       - 'os-v*.*.*'
       - 'os-v*.*.*-rc*'
+      - 'os-v*.*.*-dev*'
 
 jobs:
   build-os:

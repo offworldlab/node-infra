@@ -28,6 +28,19 @@
     src: 50-get-edi-io
     dest: /etc/apt/preferences.d/
 
+# Raspberry Pi repository for Pi-optimized kernel and packages
+- name: Add Raspberry Pi repository key.
+  copy:
+    src: raspberrypi-archive-keyring.gpg
+    dest: /usr/share/keyrings/
+    mode: 0644
+
+- name: Add Raspberry Pi repository.
+  template:
+    src: raspberrypi.list
+    dest: /etc/apt/sources.list.d/raspberrypi.list
+    mode: 0644
+
 - name: Update apt cache.
   apt:
     update_cache: yes
