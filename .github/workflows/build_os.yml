@@ -26,7 +26,32 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      
+
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/apt-cache
+          key: apt-${{ runner.os }}-${{ hashFiles('**/owl-os-pi5.yml', '**/common.yml') }}
+          restore-keys: |
+            apt-${{ runner.os }}-
+
+      - name: Cache mmdebstrap
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/mmdebstrap
+          key: mmdebstrap-${{ runner.os }}-bookworm-arm64
+          restore-keys: |
+            mmdebstrap-${{ runner.os }}-
+
+      - name: Configure apt cache
+        run: |
+          sudo mkdir -p /var/cache/apt/archives
+          if [ -d ~/apt-cache ]; then
+            sudo cp -r ~/apt-cache/* /var/cache/apt/archives/ 2>/dev/null || true
+          fi
+
       - name: Extract version
         id: version
         run: |
@@ -104,10 +129,15 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           CONFIG="${{ steps.version.outputs.config }}"
           sed -i "s/os_version: .*/os_version: ${VERSION}/" ${CONFIG}
-          
+
           # Run with lxd group permissions for documentation generation
           sudo -E sg lxd -c 'edi -vv project make ${{ steps.version.outputs.config }}'
-      
+
+      - name: Save apt cache
+        run: |
+          mkdir -p ~/apt-cache
+          sudo cp -r /var/cache/apt/archives/*.deb ~/apt-cache/ 2>/dev/null || true
+
       - name: Rename artifacts with version  
         run: |
           cd artifacts
