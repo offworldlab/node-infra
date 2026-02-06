@@ -29,3 +29,8 @@
   copy:
     src: brcmfmac.conf
     dest: /etc/modprobe.d/
+
+- name: Hold kernel package to prevent auto-upgrades.
+  dpkg_selections:
+    name: "{{ kernel_image }}"
+    selection: hold
