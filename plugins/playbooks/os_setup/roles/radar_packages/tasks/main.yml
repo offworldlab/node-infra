@@ -77,6 +77,13 @@
     dest: /etc/systemd/system/multi-user.target.wants/docker.service
     state: link
 
+# 1f) Add default user to docker group (run docker without sudo)
+- name: Add default user to docker group
+  user:
+    name: "{{ default_user_name }}"
+    groups: docker
+    append: yes
+
 # 2. Install system dependencies
 - name: Install required system packages
   apt:
