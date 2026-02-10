@@ -69,6 +69,10 @@
       become: True
       become_user: root
       when: target_is_bare_metal
+    - role: watchdog # Hardware watchdog for auto-restart on system hang/crash
+      become: True
+      become_user: root
+      when: target_is_bare_metal
     - role: set_hostname
       become: True
       become_user: root

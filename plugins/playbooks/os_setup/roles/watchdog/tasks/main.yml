@@ -1,0 +1,40 @@
+---
+# Role: watchdog
+# Version: 0.1.0
+#
+# Purpose: Configure hardware watchdog for auto-restart on system hang/crash
+#
+# This role enables automatic system recovery for remote/unattended devices:
+# - Hardware watchdog timer reboots frozen systems
+# - Kernel panic settings ensure crashes trigger reboots
+#
+# Verification after boot:
+#   systemctl status watchdog
+#   cat /proc/sys/kernel/panic
+#   dmesg | grep -i watchdog
+#
+# Target: Raspberry Pi fleet running Debian Bookworm (12.x)
+
+- name: Install watchdog package
+  apt:
+    name: watchdog
+    state: present
+
+- name: Configure kernel panic reboot timeout
+  sysctl:
+    name: kernel.panic
+    value: '10'
+    state: present
+    sysctl_file: /etc/sysctl.d/99-watchdog.conf
+
+- name: Force panic on kernel oops
+  sysctl:
+    name: kernel.panic_on_oops
+    value: '1'
+    state: present
+    sysctl_file: /etc/sysctl.d/99-watchdog.conf
+
+- name: Enable watchdog service
+  systemd:
+    name: watchdog
+    enabled: yes
