@@ -5,10 +5,8 @@
       Only Debian {{ debian_distribution_release }} is currently supported!"
   when: ansible_distribution_release != debian_distribution_release
 
-- name: Install ca-certificates.
-  apt:
-    name: ca-certificates
-    install_recommends: no
+# ca-certificates is already included in base mmdebstrap image (see packages-baseline.yml)
+# so we don't need to install it here
 
 - name: Add edi repository key.
   copy:
