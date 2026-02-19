@@ -30,7 +30,7 @@ playbooks:
             disable_ssh_password_authentication: True
             install_documentation: changelog
             translations_filter: en_translations_only
-            base_system_sources_list_template: debian.list
+            base_system_sources_list_template: raspios.list
             configure_lxc_network_interface: False
             document_build_setup: true
             document_installed_packages: true
