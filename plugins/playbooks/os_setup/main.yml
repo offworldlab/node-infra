@@ -35,9 +35,6 @@
       become: True
       become_user: root
       when: apply_proxy_settings
-    - role: repositories  # Install GPG keys before apt_setup
-      become: True
-      become_user: root
     - role: get_edi_io.debian_setup.apt_setup
       become: True
       become_user: root
@@ -53,6 +50,9 @@
       become: True
       become_user: root
       when: install_openssh_server
+    - role: repositories
+      become: True
+      become_user: root
     - role: raspios_packages  # Install Raspberry Pi OS optimizations
       become: True
       become_user: root
