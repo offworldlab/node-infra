@@ -39,7 +39,5 @@
     dest: /etc/apt/sources.list.d/raspberrypi.list
     mode: 0644
 
-- name: Update apt cache.
-  apt:
-    update_cache: yes
+# Apt cache update removed - will be done by roles that install packages
 
