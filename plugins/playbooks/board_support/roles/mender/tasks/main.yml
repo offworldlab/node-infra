@@ -36,6 +36,12 @@
     src: 05_mender_client
     dest: /etc/dpkg/dpkg.cfg.d/
 
+- name: Ensure /usr/share/keyrings directory exists.
+  file:
+    path: /usr/share/keyrings
+    state: directory
+    mode: 0755
+
 - name: Add Mender repository key.
   copy:
     src: mender-io-archive-keyring.gpg

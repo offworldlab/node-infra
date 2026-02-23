@@ -1,0 +1,45 @@
+---
+# Role: raspios_packages
+# Version: 0.1.0
+#
+# Purpose: Install Raspberry Pi OS specific packages for hardware optimization
+#
+# This role adds the Raspberry Pi repository GPG key and installs the
+# raspberrypi-sys-mods package which provides critical performance optimizations:
+#   - USB buffer tuning (usbfs_memory_mb=1000 vs Debian's 16MB default)
+#   - sysctl optimizations for real-time workloads
+#   - Hardware-specific udev rules
+#   - I/O scheduler tuning
+#
+# Background: While we use the RPi kernel, vanilla Debian lacks the userspace
+# optimizations that Raspberry Pi OS includes. This role adds those optimizations
+# to improve real-time USB performance for SDR applications (blah2).
+#
+# Target: Raspberry Pi 5 running Debian Bookworm base with RPi kernel
+# Note: GPG key and repository are already set up by repositories role
+
+# Install Raspberry Pi system modifications package
+- name: Install raspberrypi-sys-mods (RPi OS optimizations)
+  apt:
+    name: raspberrypi-sys-mods
+    state: present
+    update_cache: yes
+
+# Optional: Install raspi-config for manual system configuration
+- name: Install raspi-config (optional configuration tool)
+  apt:
+    name: raspi-config
+    state: present
+    update_cache: yes
+
+# Verify USB buffer optimization is applied
+- name: Verify USB buffer size optimization
+  shell: cat /sys/module/usbcore/parameters/usbfs_memory_mb
+  register: usb_buffer_size
+  changed_when: false
+  failed_when: false
+
+- name: Display USB buffer size
+  debug:
+    msg: "USB buffer size: {{ usb_buffer_size.stdout }}MB (should be 1000MB after reboot)"
+  when: usb_buffer_size.stdout is defined

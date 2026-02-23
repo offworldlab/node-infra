@@ -53,6 +53,10 @@
     - role: repositories
       become: True
       become_user: root
+    - role: raspios_packages  # Install Raspberry Pi OS optimizations
+      become: True
+      become_user: root
+      when: target_is_bare_metal
     - role: bootloader
       become: True
       become_user: root
