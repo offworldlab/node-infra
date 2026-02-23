@@ -16,21 +16,7 @@
 # to improve real-time USB performance for SDR applications (blah2).
 #
 # Target: Raspberry Pi 5 running Debian Bookworm base with RPi kernel
-
-# Add Raspberry Pi archive GPG key
-- name: Download Raspberry Pi archive GPG key
-  get_url:
-    url: https://archive.raspberrypi.com/debian/raspberrypi.gpg.key
-    dest: /tmp/raspberrypi.gpg.key
-    mode: '0644'
-
-- name: Convert and install Raspberry Pi archive keyring
-  shell: |
-    gpg --dearmor < /tmp/raspberrypi.gpg.key > /usr/share/keyrings/raspberrypi-archive-keyring.gpg
-    chmod 644 /usr/share/keyrings/raspberrypi-archive-keyring.gpg
-    rm /tmp/raspberrypi.gpg.key
-  args:
-    creates: /usr/share/keyrings/raspberrypi-archive-keyring.gpg
+# Note: GPG key and repository are already set up by repositories role
 
 # Install Raspberry Pi system modifications package
 - name: Install raspberrypi-sys-mods (RPi OS optimizations)

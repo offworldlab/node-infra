@@ -5,8 +5,10 @@
       Only Debian {{ debian_distribution_release }} is currently supported!"
   when: ansible_distribution_release != debian_distribution_release
 
-# ca-certificates is already included in base mmdebstrap image (see packages-baseline.yml)
-# so we don't need to install it here
+- name: Install ca-certificates.
+  apt:
+    name: ca-certificates
+    install_recommends: no
 
 - name: Add edi repository key.
   copy:
@@ -39,5 +41,7 @@
     dest: /etc/apt/sources.list.d/raspberrypi.list
     mode: 0644
 
-# Apt cache update removed - will be done by roles that install packages
+- name: Update apt cache.
+  apt:
+    update_cache: yes
 
