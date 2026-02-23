@@ -15,8 +15,8 @@
 # Update after testing: apt-cache policy linux-image-rpi-2712
 rpi_kernel_package: "linux-image-6.12.62+rpt-rpi-2712"
 
-# Mender 5.0.3 - tested with pi-uboot fixes
-mender_client_version: "5.0.3-1+debian+bookworm"
+# Mender 5.0.4 - tested with pi-uboot fixes
+mender_client_version: "5.0.4-1+debian+bookworm"
 
 # Docker
 docker_ce_version: "5:29.1.2-1~debian.12~bookworm"
