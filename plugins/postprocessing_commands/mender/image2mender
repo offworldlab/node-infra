@@ -199,25 +199,17 @@ fi
 # from the .img full disk image), modifications here only affect the OTA
 # artifact — the .img remains untouched with services disabled.
 #
-# We mount the partition image, restore the systemd symlinks and remove the
-# retina-gui flag, then unmount before mender-artifact packages it.
+# We use debugfs to restore the systemd symlinks and remove the retina-gui
+# flag directly in the ext4 image before mender-artifact packages it.
 
-OTA_MNT=$(mktemp -d -t ota-rootfs-XXXXXXXX --tmpdir=/tmp)
-mount -o loop "${INPUT_IMAGE}" "${OTA_MNT}"
-
-# Restore systemd service symlinks (removed by ansible main.yml lines 209-216)
-SYSTEMD_WANTS="${OTA_MNT}/etc/systemd/system/multi-user.target.wants"
-mkdir -p "${SYSTEMD_WANTS}"
-for svc in mender-authd.service mender-updated.service mender-connect.service; do
-    ln -sf "/lib/systemd/system/${svc}" "${SYSTEMD_WANTS}/${svc}"
-done
-
-# Remove the cloud-services-disabled flag so retina-gui sees services as
-# enabled on boot and doesn't try to disable them again.
-rm -f "${OTA_MNT}/data/retina-gui/cloud-services-disabled"
-
-umount "${OTA_MNT}"
-rmdir "${OTA_MNT}"
+# Use debugfs to modify the ext4 image directly — no mount/loop device/root
+# needed, which lets this run unprivileged in the edi build container.
+debugfs -w "${INPUT_IMAGE}" <<'DEBUGFS_CMDS'
+symlink /etc/systemd/system/multi-user.target.wants/mender-authd.service /lib/systemd/system/mender-authd.service
+symlink /etc/systemd/system/multi-user.target.wants/mender-updated.service /lib/systemd/system/mender-updated.service
+symlink /etc/systemd/system/multi-user.target.wants/mender-connect.service /lib/systemd/system/mender-connect.service
+rm /data/retina-gui/cloud-services-disabled
+DEBUGFS_CMDS
 
 mender-artifact write rootfs-image --device-type "${DEVICE_TYPE}" "${COMPATIBLE_DEVICE[@]}" \
     --artifact-name "${ARTIFACT_NAME}" ${INPUT_OPTION} "${INPUT_IMAGE}" --version 3 \
