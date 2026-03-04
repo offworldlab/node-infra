@@ -170,6 +170,25 @@
     - mender-auth
     - mender-update
 
+# --- Rootfs state scripts (update status tracking for retina-gui) ---
+
+- name: Create Mender rootfs scripts directory.
+  file:
+    path: /etc/mender/scripts
+    state: directory
+    mode: '0755'
+
+- name: Install retina state scripts.
+  copy:
+    src: "state-scripts/{{ item }}"
+    dest: "/etc/mender/scripts/{{ item }}"
+    mode: '0755'
+  loop:
+    - Download_Enter_00_retina_state
+    - ArtifactInstall_Enter_00_retina_state
+    - ArtifactCommit_Leave_00_retina_state
+    - ArtifactFailure_Enter_00_retina_state
+
 # --- Cloud services disabled by default (user enables via retina-gui) ---
 
 - name: Create retina-gui data directory.

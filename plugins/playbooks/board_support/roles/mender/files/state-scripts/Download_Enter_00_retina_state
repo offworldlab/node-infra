@@ -1,0 +1,5 @@
+#!/bin/sh
+# Write update status file when artifact download begins (managed/server-pushed mode only).
+mkdir -p /data/retina-gui
+echo "{\"state\":\"downloading\",\"ts\":\"$(date -Iseconds)\"}" > /data/retina-gui/mender-update.status
+exit 0
