@@ -1,0 +1,5 @@
+#!/bin/sh
+# Update status file when artifact installation begins (both managed and standalone mode).
+mkdir -p /data/retina-gui
+echo "{\"state\":\"installing\",\"ts\":\"$(date -Iseconds)\"}" > /data/retina-gui/mender-update.status
+exit 0

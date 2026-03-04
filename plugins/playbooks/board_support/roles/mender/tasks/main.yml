@@ -169,3 +169,48 @@
     - mender-client
     - mender-auth
     - mender-update
+
+# --- Rootfs state scripts (update status tracking for retina-gui) ---
+
+- name: Create Mender rootfs scripts directory.
+  file:
+    path: /etc/mender/scripts
+    state: directory
+    mode: '0755'
+
+- name: Install retina rootfs state script (Download only; Artifact scripts are embedded in .mender).
+  copy:
+    src: "state-scripts/{{ item }}"
+    dest: "/etc/mender/scripts/{{ item }}"
+    mode: '0755'
+  loop:
+    - Download_Enter_00_retina_state
+
+# --- Cloud services disabled by default (user enables via retina-gui) ---
+
+- name: Create retina-gui data directory.
+  file:
+    path: /data/retina-gui
+    state: directory
+
+- name: Create cloud services disabled flag.
+  copy:
+    content: ''
+    dest: /data/retina-gui/cloud-services-disabled
+
+- name: Create mender cloud disabled backup directory.
+  file:
+    path: /data/mender-cloud-disabled
+    state: directory
+
+- name: Move mender.conf to backup location (cloud services disabled by default).
+  command: mv /data/mender/mender.conf /data/mender-cloud-disabled/mender.conf
+
+- name: Disable Mender services (cloud services off by default).
+  file:
+    path: /etc/systemd/system/multi-user.target.wants/{{ item }}
+    state: absent
+  loop:
+    - mender-authd.service
+    - mender-updated.service
+    - mender-connect.service

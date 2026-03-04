@@ -180,10 +180,44 @@ if [ -n "${SOFTWARE_NAME}" ]; then
     SOFTWARE_FLAGS+=( "--software-name" "${SOFTWARE_NAME}" )
 fi
 
+# --- OTA rootfs fixup: re-enable Mender services before packaging ---
+#
+# The ansible build (main.yml) ships the .img with Mender systemd services
+# disabled and a cloud-services-disabled flag file present. This is correct
+# for fresh SD card flashes — the user must explicitly consent to cloud
+# services via retina-gui before Mender phones home.
+#
+# However, the .mender artifact (used for OTA rootfs updates) must have
+# services ENABLED. Reasoning:
+#   1. If an OTA is being deployed, Mender is already running and the user
+#      has already consented to cloud services.
+#   2. After reboot into the new rootfs, mender-updated must start so it
+#      can run ArtifactVerifyReboot and complete the commit. If it doesn't
+#      start, the update hangs and eventually rolls back.
+#
+# Since image2mender operates on the _rootfs.ext4 partition image (separate
+# from the .img full disk image), modifications here only affect the OTA
+# artifact — the .img remains untouched with services disabled.
+#
+# We use debugfs to restore the systemd symlinks and remove the retina-gui
+# flag directly in the ext4 image before mender-artifact packages it.
+
+# Use debugfs to modify the ext4 image directly — no mount/loop device/root
+# needed, which lets this run unprivileged in the edi build container.
+debugfs -w "${INPUT_IMAGE}" <<'DEBUGFS_CMDS'
+symlink /etc/systemd/system/multi-user.target.wants/mender-authd.service /lib/systemd/system/mender-authd.service
+symlink /etc/systemd/system/multi-user.target.wants/mender-updated.service /lib/systemd/system/mender-updated.service
+symlink /etc/systemd/system/multi-user.target.wants/mender-connect.service /lib/systemd/system/mender-connect.service
+rm /data/retina-gui/cloud-services-disabled
+DEBUGFS_CMDS
+
 mender-artifact write rootfs-image --device-type "${DEVICE_TYPE}" "${COMPATIBLE_DEVICE[@]}" \
     --artifact-name "${ARTIFACT_NAME}" ${INPUT_OPTION} "${INPUT_IMAGE}" --version 3 \
     --script "${SCRIPTDIR}/ArtifactInstall_Leave_50_ConfigurationBackup" \
     --script "${SCRIPTDIR}/ArtifactReboot_Leave_50_ConfigurationRestore" \
+    --script "${SCRIPTDIR}/ArtifactInstall_Enter_00_retina_state" \
+    --script "${SCRIPTDIR}/ArtifactCommit_Leave_00_retina_state" \
+    --script "${SCRIPTDIR}/ArtifactFailure_Enter_00_retina_state" \
     "${BOOTPARTITION_SETUP_SCRIPT[@]}" \
     "${SOFTWARE_FLAGS[@]}" \
     --output-path "${MENDER_ARTIFACT}"
