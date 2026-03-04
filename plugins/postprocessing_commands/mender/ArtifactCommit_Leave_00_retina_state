@@ -1,0 +1,4 @@
+#!/bin/sh
+# Clear update status file after successful commit.
+rm -f /data/retina-gui/mender-update.status
+exit 0

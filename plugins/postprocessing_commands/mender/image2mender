@@ -184,6 +184,9 @@ mender-artifact write rootfs-image --device-type "${DEVICE_TYPE}" "${COMPATIBLE_
     --artifact-name "${ARTIFACT_NAME}" ${INPUT_OPTION} "${INPUT_IMAGE}" --version 3 \
     --script "${SCRIPTDIR}/ArtifactInstall_Leave_50_ConfigurationBackup" \
     --script "${SCRIPTDIR}/ArtifactReboot_Leave_50_ConfigurationRestore" \
+    --script "${SCRIPTDIR}/ArtifactInstall_Enter_00_retina_state" \
+    --script "${SCRIPTDIR}/ArtifactCommit_Leave_00_retina_state" \
+    --script "${SCRIPTDIR}/ArtifactFailure_Enter_00_retina_state" \
     "${BOOTPARTITION_SETUP_SCRIPT[@]}" \
     "${SOFTWARE_FLAGS[@]}" \
     --output-path "${MENDER_ARTIFACT}"

@@ -178,16 +178,13 @@
     state: directory
     mode: '0755'
 
-- name: Install retina state scripts.
+- name: Install retina rootfs state script (Download only; Artifact scripts are embedded in .mender).
   copy:
     src: "state-scripts/{{ item }}"
     dest: "/etc/mender/scripts/{{ item }}"
     mode: '0755'
   loop:
     - Download_Enter_00_retina_state
-    - ArtifactInstall_Enter_00_retina_state
-    - ArtifactCommit_Leave_00_retina_state
-    - ArtifactFailure_Enter_00_retina_state
 
 # --- Cloud services disabled by default (user enables via retina-gui) ---
 
