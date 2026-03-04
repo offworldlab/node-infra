@@ -180,6 +180,45 @@ if [ -n "${SOFTWARE_NAME}" ]; then
     SOFTWARE_FLAGS+=( "--software-name" "${SOFTWARE_NAME}" )
 fi
 
+# --- OTA rootfs fixup: re-enable Mender services before packaging ---
+#
+# The ansible build (main.yml) ships the .img with Mender systemd services
+# disabled and a cloud-services-disabled flag file present. This is correct
+# for fresh SD card flashes — the user must explicitly consent to cloud
+# services via retina-gui before Mender phones home.
+#
+# However, the .mender artifact (used for OTA rootfs updates) must have
+# services ENABLED. Reasoning:
+#   1. If an OTA is being deployed, Mender is already running and the user
+#      has already consented to cloud services.
+#   2. After reboot into the new rootfs, mender-updated must start so it
+#      can run ArtifactVerifyReboot and complete the commit. If it doesn't
+#      start, the update hangs and eventually rolls back.
+#
+# Since image2mender operates on the _rootfs.ext4 partition image (separate
+# from the .img full disk image), modifications here only affect the OTA
+# artifact — the .img remains untouched with services disabled.
+#
+# We mount the partition image, restore the systemd symlinks and remove the
+# retina-gui flag, then unmount before mender-artifact packages it.
+
+OTA_MNT=$(mktemp -d -t ota-rootfs-XXXXXXXX --tmpdir=/tmp)
+mount -o loop "${INPUT_IMAGE}" "${OTA_MNT}"
+
+# Restore systemd service symlinks (removed by ansible main.yml lines 209-216)
+SYSTEMD_WANTS="${OTA_MNT}/etc/systemd/system/multi-user.target.wants"
+mkdir -p "${SYSTEMD_WANTS}"
+for svc in mender-authd.service mender-updated.service mender-connect.service; do
+    ln -sf "/lib/systemd/system/${svc}" "${SYSTEMD_WANTS}/${svc}"
+done
+
+# Remove the cloud-services-disabled flag so retina-gui sees services as
+# enabled on boot and doesn't try to disable them again.
+rm -f "${OTA_MNT}/data/retina-gui/cloud-services-disabled"
+
+umount "${OTA_MNT}"
+rmdir "${OTA_MNT}"
+
 mender-artifact write rootfs-image --device-type "${DEVICE_TYPE}" "${COMPATIBLE_DEVICE[@]}" \
     --artifact-name "${ARTIFACT_NAME}" ${INPUT_OPTION} "${INPUT_IMAGE}" --version 3 \
     --script "${SCRIPTDIR}/ArtifactInstall_Leave_50_ConfigurationBackup" \
