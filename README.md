@@ -31,11 +31,24 @@ Mender-enabled OS images for Raspberry Pi 5 radar nodes. The image comes pre-loa
 
 4. **Deploy [retina-node](https://github.com/offworldlabs/retina-node) stack** via Mender OTA
 
+## Mender Cloud Services
+
+Cloud services (mender-authd, mender-updated, mender-connect) are handled differently between the two build artifacts:
+
+- **`.img` (fresh flash)** — cloud services are **disabled** by default. `mender.conf` is backed up to `/data/mender-cloud-disabled/` and the three Mender systemd services are masked. The user must consent via the retina-gui install flow to enable them.
+- **`.mender` (OTA artifact)** — cloud services are **re-enabled** via `debugfs` in the `image2mender` post-processing step. This is required because `mender-updated` must start after reboot to run `ArtifactVerifyReboot` and commit the update — without it the update hangs and rolls back.
+
+After install, users can toggle cloud services on/off from `http://retina.local`. The preference persists across reboots and OTA updates. Toggling is blocked while any update is in progress.
+
+### Install Lock
+
+During a retina-node install, retina-gui holds an `install.lock` in `/data/retina-gui/` to prevent concurrent installs and block cloud service toggling mid-update. The lock is released on completion (success or failure) with a 40-minute stale timeout as a safety net. Mender state scripts write a separate `mender-update.status` file for real-time progress polling (downloading → installing → done).
+
 ## Configuration
 
 ### Node Configuration
 
-After deploying retina-node, visit `http://retina.local` to add and manage SSH keys. See the readme in [retina-node](https://github.com/offworldlabs/retina-node) for updating config (TODO config via GUI).
+After deploying retina-node, visit `http://retina.local` to configure capture settings, location, ADS-B truth source, and tar1090. See [retina-node](https://github.com/offworldlabs/retina-node) for details.
 
 ### Cloudflare Tunnel (Optional)
 
