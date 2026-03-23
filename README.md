@@ -38,7 +38,7 @@ Cloud services (mender-authd, mender-updated, mender-connect) are handled differ
 - **`.img` (fresh flash)** — cloud services are **disabled** by default. `mender.conf` is backed up to `/data/mender-cloud-disabled/` and the three Mender systemd services are masked. The user must consent via the retina-gui install flow to enable them.
 - **`.mender` (OTA artifact)** — cloud services are **re-enabled** via `debugfs` in the `image2mender` post-processing step. This is required because `mender-updated` must start after reboot to run `ArtifactVerifyReboot` and commit the update — without it the update hangs and rolls back.
 
-After install, users can toggle cloud services on/off from `http://retina.local`. The preference persists across reboots and OTA updates. Toggling is blocked while any update is in progress.
+After install, users can toggle cloud services on/off from `http://owl.local`. The preference persists across reboots and OTA updates. Toggling is blocked while any update is in progress.
 
 ### Install Lock
 
@@ -48,7 +48,7 @@ During a retina-node install, retina-gui holds an `install.lock` in `/data/retin
 
 ### Node Configuration
 
-After deploying retina-node, visit `http://retina.local` to configure capture settings, location, ADS-B truth source, and tar1090. See [retina-node](https://github.com/offworldlabs/retina-node) for details.
+After deploying retina-node, visit `http://owl.local` to configure capture settings, location, ADS-B truth source, and tar1090. See [retina-node](https://github.com/offworldlabs/retina-node) for details.
 
 ### Cloudflare Tunnel (Optional)
 
@@ -65,9 +65,9 @@ The token persists across OTA updates.
 
 ### SSH Access
 
-**End users:** Add your SSH key via the web GUI at `http://retina.local` after boot. Once added, connect with:
+**End users:** Add your SSH key via the web GUI at `http://owl.local` after boot. Once added, connect with:
 ```bash
-ssh node@retina.local
+ssh node@owl.local
 # or by IP
 ssh node@<ip-address>
 ```

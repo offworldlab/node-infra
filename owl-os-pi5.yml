@@ -60,7 +60,7 @@ postprocessing_commands:
                 location: {{ edi_configuration_name }}_rootfs.ext4
                 type: path
         parameters:
-            hostname: retina
+            hostname: owl
     400_mender:
         path: postprocessing_commands/mender/image2mender.edi
         output:
