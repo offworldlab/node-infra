@@ -49,5 +49,5 @@ mender_app_base_url: "https://raw.githubusercontent.com/mendersoftware/app-updat
 
 # retina-gui web interface
 retina_gui_repo_url: "https://github.com/offworldlabs/retina-gui.git"
-retina_gui_version: "v0.1.18"  # GUI Wizard
+retina_gui_version: "v0.1.19"  # GUI Wizard
 
