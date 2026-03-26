@@ -16,7 +16,7 @@ Mender-enabled OS images for Raspberry Pi 5 radar nodes. The image comes pre-loa
 ## Quick Start
 
 1. **Flash the image** to an SD card (64GB+) using Raspberry Pi Imager
-   - Download from [Releases](https://github.com/offworldlabs/node-infra/releases)
+   - Download from [Releases](https://github.com/offworldlabs/owl-os/releases)
    - Select `owl-os-vx.x.x.img` as custom OS
    - Do not apply OS customisation settings
 
