@@ -111,6 +111,7 @@
   apt:
     name:
       - avahi-daemon    # mDNS service for .local hostname advertisement
+      - avahi-utils     # Provides avahi-publish for mDNS alias publishing
       - libnss-mdns     # Name service switch module for mDNS resolution
     state: present
     update_cache: yes
