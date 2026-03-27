@@ -133,7 +133,7 @@
 
       [Service]
       Type=simple
-      ExecStart=/usr/bin/avahi-publish -a -R retina.local $(ip route get 1 | awk '{print $7;exit}')
+      ExecStart=/bin/bash -c "/usr/bin/avahi-publish -a -R retina.local $(ip route get 1 | awk '{print $7;exit}')"
       Restart=always
       RestartSec=10
 
