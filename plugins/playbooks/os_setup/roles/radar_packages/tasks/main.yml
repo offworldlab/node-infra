@@ -104,6 +104,7 @@
   pip:
     name: flask-wtf
     executable: pip3
+    extra_args: --break-system-packages
 
 # 2a. Install Avahi for mDNS .local hostname resolution
 - name: Install Avahi mDNS daemon
