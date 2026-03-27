@@ -94,11 +94,16 @@
       - expect          # Required for SDRplay interactive installer
       - wireless-tools  # Required for iwgetid WiFi connection check
       - python3-flask   # Required for retina-gui web interface
-      - python3-flask-wtf  # Required for retina-gui CSRF protection
       - python3-yaml    # Required for retina-gui config YAML parsing
       - python3-pydantic  # Required for retina-gui form validation
       - python3-requests  # Required for retina-gui Mender API calls
+      - python3-pip     # Required to install Flask-WTF (not in Bookworm apt)
     state: present
+
+- name: Install Flask-WTF via pip (not available as Debian package)
+  pip:
+    name: flask-wtf
+    executable: pip3
 
 # 2a. Install Avahi for mDNS .local hostname resolution
 - name: Install Avahi mDNS daemon
