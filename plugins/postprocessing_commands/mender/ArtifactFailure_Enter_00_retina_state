@@ -1,4 +1,5 @@
 #!/bin/sh
-# Clear update status file on failure or rollback.
+# Clear retina-gui state files on failure or rollback.
 rm -f /data/retina-gui/mender-update.status
+rm -f /data/retina-gui/install.lock
 exit 0

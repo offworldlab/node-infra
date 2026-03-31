@@ -1,4 +1,5 @@
 #!/bin/sh
-# Clear update status file after successful commit.
+# Clear retina-gui state files after successful commit.
 rm -f /data/retina-gui/mender-update.status
+rm -f /data/retina-gui/install.lock
 exit 0
