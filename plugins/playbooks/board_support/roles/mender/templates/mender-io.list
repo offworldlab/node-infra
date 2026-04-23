@@ -1,2 +1,2 @@
-# Mender device-components repository for Mender Client 5.x
+# Mender device-components repository for Mender Client 6.0.0 suite
 deb [arch={{ edi_bootstrap_architecture }} signed-by=/usr/share/keyrings/mender-io-archive-keyring.gpg] https://downloads.mender.io/repos/device-components debian/{{ ansible_distribution_release }}/stable main
