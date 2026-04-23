@@ -75,8 +75,9 @@
 - name: Install mender addons.
   apt:
     name:
-    - mender-connect
-    - mender-configure
+    - "mender-connect={{ mender_connect_version }}"
+    - "mender-configure={{ mender_configure_version }}"
+    - "mender-monitor={{ mender_monitor_version }}"
     state: present
     install_recommends: no
 
@@ -166,9 +167,11 @@
     name: "{{ item }}"
     selection: hold
   loop:
-    - mender-client
+    - mender-client4
     - mender-auth
     - mender-update
+    - mender-connect
+    - mender-monitor
 
 # --- Rootfs state scripts (update status tracking for retina-gui) ---
 
