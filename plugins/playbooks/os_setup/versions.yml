@@ -1,7 +1,6 @@
 ---
-# blah2 OS Package Versions
-# Updated: 2025-12-12
-# OS Version: v0.2.0
+# OWL-OS Package Versions
+# Updated: 2026-4-23
 # Target: Raspberry Pi 5, Debian Bookworm (12.x)
 
 # Held packages (prevent apt auto-upgrade):
@@ -49,5 +48,5 @@ balena_ui_url: "https://github.com/balena-os/wifi-connect/releases/download/v4.1
 
 # retina-gui web interface
 retina_gui_repo_url: "https://github.com/offworldlabs/retina-gui.git"
-retina_gui_version: "v0.1.19"  # GUI Wizard
+retina_gui_version: "v0.1.20"  # mender-docker-compose path
 
