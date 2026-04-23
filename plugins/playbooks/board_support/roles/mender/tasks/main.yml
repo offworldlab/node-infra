@@ -77,6 +77,7 @@
     name:
     - "mender-connect={{ mender_connect_version }}"
     - "mender-configure={{ mender_configure_version }}"
+    - "mender-docker-compose={{ mender_docker_compose_version }}"
     state: present
     install_recommends: no
 
@@ -170,6 +171,7 @@
     - mender-auth
     - mender-update
     - mender-connect
+    - mender-docker-compose
 
 # --- Rootfs state scripts (update status tracking for retina-gui) ---
 

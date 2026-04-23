@@ -105,7 +105,7 @@ Connect from a SDRconnect client on another machine using the Pi's IP.
 
 > **Warning:** Conflicts with blah2 - stop containers first:
 > ```bash
-> cd /data/mender-app/retina-node/manifests && docker compose -p retina-node down
+> cd /data/mender-docker-compose/current/manifests && docker compose -p retina-node down
 > ```
 
 ### Mender Tenant Token
