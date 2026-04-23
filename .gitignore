@@ -1,3 +1,6 @@
+# plans (local only)
+.plans/
+
 # edi build artifacts
 
 artifacts/*
