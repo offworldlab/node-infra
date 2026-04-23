@@ -5,7 +5,7 @@
 
 # Held packages (prevent apt auto-upgrade):
 # - docker-ce, docker-ce-cli, docker-compose-plugin, containerd.io
-# - mender-client4, mender-auth, mender-update, mender-connect, mender-docker-compose
+# - mender-client4, mender-auth, mender-update, mender-connect, mender-configure, mender-docker-compose
 
 # Critical Packages - Exact pins (hold enabled, test before upgrading)
 # ======================================================================

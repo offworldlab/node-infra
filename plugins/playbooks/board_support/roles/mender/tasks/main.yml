@@ -171,6 +171,7 @@
     - mender-auth
     - mender-update
     - mender-connect
+    - mender-configure
     - mender-docker-compose
 
 # --- Rootfs state scripts (update status tracking for retina-gui) ---
