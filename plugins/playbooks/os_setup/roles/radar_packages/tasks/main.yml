@@ -229,45 +229,6 @@
     insertbefore: "^exit 0"
     line: "udevadm control --reload-rules && udevadm trigger"
 
-# 4. Install Mender app update module for Docker Compose OTA updates
-- name: Install tree and xdelta3 (mender update module)
-  apt:
-    name:
-      - tree
-      - xdelta3
-    state: present
-    update_cache: yes
-
-- name: Create app-modules directory
-  file:
-    path: /usr/share/mender/app-modules/v1
-    state: directory
-    mode: '0755'
-
-- name: Install Mender app update module
-  get_url:
-    url: "{{ mender_app_base_url }}/src/app"
-    dest: /usr/share/mender/modules/v3/app
-    mode: '0755'
-
-- name: Install Docker Compose sub-module
-  get_url:
-    url: "{{ mender_app_base_url }}/src/app-modules/docker-compose"
-    dest: /usr/share/mender/app-modules/v1/docker-compose
-    mode: '0755'
-
-- name: Install mender-app.conf
-  get_url:
-    url: "{{ mender_app_base_url }}/conf/mender-app.conf"
-    dest: /etc/mender/mender-app.conf
-    mode: '0644'
-
-- name: Install mender-app-docker-compose.conf
-  get_url:
-    url: "{{ mender_app_base_url }}/conf/mender-app-docker-compose.conf"
-    dest: /etc/mender/mender-app-docker-compose.conf
-    mode: '0644'
-
 # 5. Install nano for text editing
 - name: Install nano editor
   apt:

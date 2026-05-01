@@ -1,12 +1,11 @@
 ---
-# blah2 OS Package Versions
-# Updated: 2025-12-12
-# OS Version: v0.2.0
+# OWL-OS Package Versions
+# Updated: 2026-4-23
 # Target: Raspberry Pi 5, Debian Bookworm (12.x)
 
 # Held packages (prevent apt auto-upgrade):
 # - docker-ce, docker-ce-cli, docker-compose-plugin, containerd.io
-# - mender-client4, mender-auth, mender-update, mender-connect
+# - mender-client4, mender-auth, mender-update, mender-connect, mender-configure, mender-docker-compose
 
 # Critical Packages - Exact pins (hold enabled, test before upgrading)
 # ======================================================================
@@ -19,6 +18,8 @@ rpi_kernel_package: "linux-image-6.12.62+rpt-rpi-2712"
 mender_client_version: "5.1.0-1+debian+bookworm"
 mender_connect_version: "3.0.0-1+debian+bookworm"
 mender_configure_version: "1.1.4-1+debian+bookworm"
+mender_docker_compose_version: "1.0.0-1+debian+bookworm"
+retina_node_manifests_path: "/data/mender-docker-compose/current/manifests"
 
 # Docker
 docker_ce_version: "5:29.1.2-1~debian.12~bookworm"
@@ -26,8 +27,8 @@ docker_cli_version: "5:29.1.2-1~debian.12~bookworm"
 containerd_version: "2.2.0-2~debian.12~bookworm"
 docker_buildx_version: "0.30.1-1~debian.12~bookworm"
 
-# Docker Compose -  exact pin (v5 has breaking changes for old Mender update module)
-docker_compose_version: "2.29.7-1~debian.12~bookworm"
+# Docker Compose - exact pin
+docker_compose_version: "5.1.3-1~debian.12~bookworm"
 
 # Components and Versions
 # ======================================================================
@@ -45,11 +46,7 @@ balena_wifi_version: "v4.11.84"
 balena_binary_url: "https://github.com/balena-os/wifi-connect/releases/download/v4.11.84/wifi-connect-aarch64-unknown-linux-gnu.tar.gz"
 balena_ui_url: "https://github.com/balena-os/wifi-connect/releases/download/v4.11.84/wifi-connect-ui.tar.gz"
 
-# Mender app update module (@TODO Phase 2: migrate to mender-container-modules docker-compose module)
-mender_app_version: "1.1.0"
-mender_app_base_url: "https://raw.githubusercontent.com/mendersoftware/app-update-module/1.1.0"
-
 # retina-gui web interface
 retina_gui_repo_url: "https://github.com/offworldlabs/retina-gui.git"
-retina_gui_version: "v0.1.19"  # GUI Wizard
+retina_gui_version: "v0.1.21"  # mender-docker-compose path
 
