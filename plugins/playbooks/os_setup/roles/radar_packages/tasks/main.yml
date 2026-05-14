@@ -364,6 +364,10 @@
     src: "{{ balena_binary_url }}"
     dest: /tmp/
     remote_src: yes
+  retries: 3
+  delay: 10
+  register: result
+  until: result is succeeded
 
 - name: Install wifi-connect binary
   copy:
@@ -382,6 +386,10 @@
     src: "{{ balena_ui_url }}"
     dest: /tmp/wifi-ui-temp/
     remote_src: yes
+  retries: 3
+  delay: 10
+  register: result
+  until: result is succeeded
 
 - name: Create wifi-connect directory
   file:
