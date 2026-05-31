@@ -220,6 +220,9 @@ mount "${DATA_LD}" "${DATA_MNT}"
 # Copy all files from the LXD rootfs to the loop device mount point directory
 rsync -a -H --exclude 'usr/share/doc/*/changelog.Debian.gz' --exclude 'usr/share/doc/*/changelog.gz' "${ROOTFS_DIR}/" "${ROOT_MNT}/"
 
+# Remove cached Mender node_id so each device generates its own from its serial on first boot.
+rm -f "${DATA_MNT}/mender/node_id"
+
 do_unmount
 
 zerofree "${ROOT_LD}"

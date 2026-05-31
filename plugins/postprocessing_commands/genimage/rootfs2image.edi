@@ -96,6 +96,8 @@ fi
 # Remove /etc/machine-id and /var/lib/dbus/machine-id (it should be unique for each system).
 rm rootfs/etc/machine-id
 rm rootfs/var/lib/dbus/machine-id
+# Remove cached Mender node_id so each device generates its own from its serial on first boot.
+rm -f rootfs/data/mender/node_id
 # Add fstab.
 cp "${PLUGIN_DIRECTORY}/fstab" rootfs/etc/
 
