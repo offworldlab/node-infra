@@ -5,15 +5,37 @@
 # Generates a human-readable node_id from the Raspberry Pi serial number.
 # Format: ret + last 8 hex chars of serial (e.g., ret7dd2cb0d)
 #
-# The node_id is generated once and persisted at /data/mender/node_id.
-# Falls back to MAC address for non-RPi hardware.
+# On RPi hardware the serial is always authoritative — the cache is refreshed
+# if it differs (guards against stale ids baked into golden images).
+# Falls back to cached node_id or MAC address for non-RPi hardware.
 
 set -ue
 
 NODE_ID_FILE=/data/mender/node_id
 MAC_FILE=/sys/class/net/{{ 'end0' if mender_device_type in ['pi4-v3', 'pi5-v3'] else 'eth0' }}/address
 
-# Return existing node_id if already generated
+# On RPi hardware derive node_id from serial — always, not just on first boot.
+if grep -q "Raspberry Pi\|BCM" /proc/cpuinfo 2>/dev/null; then
+    SERIAL=$(grep "^Serial" /proc/cpuinfo | cut -d: -f2 | tr -d ' ')
+    if [ -n "${SERIAL}" ] && [ "${SERIAL}" != "0000000000000000" ]; then
+        NODE_ID="ret${SERIAL: -8}"
+
+        # Refresh cache if absent or stale
+        CACHED=""
+        [ -f "${NODE_ID_FILE}" ] && CACHED=$(cat "${NODE_ID_FILE}" | tr -d '[:space:]')
+        if [ "${CACHED}" != "${NODE_ID}" ]; then
+            mkdir -p "$(dirname ${NODE_ID_FILE})"
+            TEMP_FILE="${NODE_ID_FILE}.tmp.$$"
+            echo "${NODE_ID}" > "${TEMP_FILE}"
+            mv "${TEMP_FILE}" "${NODE_ID_FILE}"
+        fi
+
+        echo "node_id=${NODE_ID}"
+        exit 0
+    fi
+fi
+
+# Non-RPi hardware: use cached node_id if present
 if [ -f "${NODE_ID_FILE}" ]; then
     NODE_ID=$(cat "${NODE_ID_FILE}" | tr -d '[:space:]')
     if [ -n "${NODE_ID}" ]; then
@@ -22,26 +44,7 @@ if [ -f "${NODE_ID_FILE}" ]; then
     fi
 fi
 
-# Generate node_id from RPi serial (first boot)
-if grep -q "Raspberry Pi\|BCM" /proc/cpuinfo 2>/dev/null; then
-    SERIAL=$(grep "^Serial" /proc/cpuinfo | cut -d: -f2 | tr -d ' ')
-    if [ -n "${SERIAL}" ] && [ "${SERIAL}" != "0000000000000000" ]; then
-        # Take last 8 hex characters
-        SERIAL_SUFFIX="${SERIAL: -8}"
-        NODE_ID="ret${SERIAL_SUFFIX}"
-
-        # Persist for future calls (atomic write)
-        mkdir -p "$(dirname ${NODE_ID_FILE})"
-        TEMP_FILE="${NODE_ID_FILE}.tmp.$$"
-        echo "${NODE_ID}" > "${TEMP_FILE}"
-        mv "${TEMP_FILE}" "${NODE_ID_FILE}"
-
-        echo "node_id=${NODE_ID}"
-        exit 0
-    fi
-fi
-
-# Fallback to MAC address for non-RPi hardware
+# Fallback to MAC address
 if [ ! -f "${MAC_FILE}" ]; then
     >&2 echo "Error: ${MAC_FILE} not found and could not generate node_id!"
     exit 1
