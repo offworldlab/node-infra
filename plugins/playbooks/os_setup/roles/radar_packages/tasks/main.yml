@@ -14,6 +14,7 @@
 #   7. Cloudflared - Secure tunneling for remote access
 #   8. SDRconnect - Standalone SDR analysis tool
 #   9. WiFi Connect captive portal (Balena) - Easy WiFi setup
+#  10. RSPduo watchdog - Cron-based health check for automatic recovery
 #
 # Target: Raspberry Pi 5 fleet running Debian Bookworm (12.x)
 #
@@ -455,4 +456,45 @@
     - docker-compose-plugin
     - docker-buildx-plugin
     - containerd.io
+
+# 9. RSPduo watchdog: cron-based health check that auto-restarts the stack on detection failure
+- name: Create blah2 script directory
+  file:
+    path: /opt/blah2/script
+    state: directory
+    mode: '0755'
+
+- name: Install RSPduo watchdog script
+  copy:
+    dest: /opt/blah2/script/blah2_rspduo_restart.bash
+    mode: '0755'
+    content: |
+      #!/bin/bash
+
+      # Run script with a crontab to automatically restart on error.
+      # Checks the API to see if data is still being pushed through.
+
+      COMPOSE_FILE=/data/mender-docker-compose/current/manifests/docker-compose.yaml
+      PROJECT=retina-node
+
+      FIRST_CHAR=$(curl -s 127.0.0.1:3000/api/map | head -c1)
+      TIMESTAMP=$(curl -s 127.0.0.1:3000/api/map | head -c23 | tail -c10)
+      CURR_TIMESTAMP=$(date +%s)
+      DIFF_TIMESTAMP=$(($CURR_TIMESTAMP-$TIMESTAMP))
+
+      if [[ "$FIRST_CHAR" != "{" ]] || [[ $DIFF_TIMESTAMP -gt 60 ]]; then
+        docker compose -p $PROJECT -f $COMPOSE_FILE down
+        kill -9 $(pgrep -f "sdrplay_apiService") 2>/dev/null || true
+        systemctl restart sdrplay.service
+        docker compose -p $PROJECT -f $COMPOSE_FILE up -d
+        echo "Successfully restarted blah2"
+      fi
+
+- name: Install RSPduo watchdog cron job
+  copy:
+    dest: /etc/cron.d/blah2-rspduo-watchdog
+    mode: '0644'
+    content: |
+      # RSPduo health check: restart retina-node stack if blah2 API data is stale (>60s)
+      */5 * * * *  root  /opt/blah2/script/blah2_rspduo_restart.bash
 
