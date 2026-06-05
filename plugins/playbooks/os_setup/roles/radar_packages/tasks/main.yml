@@ -94,6 +94,7 @@
       - libudev1        # Required for udev device detection
       - expect          # Required for SDRplay interactive installer
       - wireless-tools  # Required for iwgetid WiFi connection check
+      - cron             # Required for RSPduo watchdog scheduled health checks
       - python3-flask   # Required for retina-gui web interface
       - python3-yaml    # Required for retina-gui config YAML parsing
       - python3-pydantic  # Required for retina-gui form validation
@@ -107,7 +108,14 @@
     executable: pip3
     extra_args: --break-system-packages
 
-# 2a. Install Avahi for mDNS .local hostname resolution
+# 2a. Enable cron daemon on boot
+- name: Enable cron service on boot
+  file:
+    src: /lib/systemd/system/cron.service
+    dest: /etc/systemd/system/multi-user.target.wants/cron.service
+    state: link
+
+# 2b. Install Avahi for mDNS .local hostname resolution
 - name: Install Avahi mDNS daemon
   apt:
     name:
