@@ -484,6 +484,12 @@
 
       COMPOSE_FILE=/data/mender-docker-compose/current/manifests/docker-compose.yaml
       PROJECT=retina-node
+      MODE_FILE=/data/retina-gui/mode.txt
+
+      # Don't interfere when spectrum mode is active - blah2 is intentionally stopped
+      if [ -f "$MODE_FILE" ] && [ "$(cat $MODE_FILE)" = "spectrum" ]; then
+        exit 0
+      fi
 
       FIRST_CHAR=$(curl -s 127.0.0.1:3000/api/map | head -c1)
       TIMESTAMP=$(curl -s 127.0.0.1:3000/api/map | head -c23 | tail -c10)
