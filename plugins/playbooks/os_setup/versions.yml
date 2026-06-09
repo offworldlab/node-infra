@@ -48,5 +48,5 @@ balena_ui_url: "https://github.com/balena-os/wifi-connect/releases/download/v4.1
 
 # retina-gui web interface
 retina_gui_repo_url: "https://github.com/offworldlabs/retina-gui.git"
-retina_gui_version: "v0.2.6"  # mender-docker-compose path
+retina_gui_version: "v0.2.7"  # mender-docker-compose path
 
