@@ -7,7 +7,8 @@
 # This playbook installs the essential system components needed to run blah2 on Raspberry Pi 5:
 #   1. Docker CE 27.x & Docker Compose v2 - Container runtime for blah2 services
 #   2. System dependencies (graphviz, libusb, libudev, expect, wireless-tools)
-#   3. Avahi mDNS daemon - .local hostname resolution
+#   3. Avahi mDNS daemon - .local hostname resolution (owl.local until retina-node
+#      is installed, see radar_data_bootstrap for the retina.local hostname swap)
 #   4. SDRplay API v3.15.2 - Hardware driver for RSPDuo SDR
 #   5. Mender Docker Update Module and requirements
 #   6. Chrony - NTP clock disciplining for accurate timing
@@ -120,7 +121,6 @@
   apt:
     name:
       - avahi-daemon    # mDNS service for .local hostname advertisement
-      - avahi-utils     # Provides avahi-publish for mDNS alias publishing
       - libnss-mdns     # Name service switch module for mDNS resolution
     state: present
     update_cache: yes
@@ -129,31 +129,6 @@
   file:
     src: /lib/systemd/system/avahi-daemon.service
     dest: /etc/systemd/system/multi-user.target.wants/avahi-daemon.service
-    state: link
-
-# 2b. Install retina.local mDNS alias (backwards compatibility for existing nodes)
-- name: Install retina.local avahi alias service
-  copy:
-    dest: /etc/systemd/system/avahi-alias-retina.service
-    content: |
-      [Unit]
-      Description=Publish retina.local as mDNS alias for this device
-      Requires=avahi-daemon.service
-      After=avahi-daemon.service network-online.target
-
-      [Service]
-      Type=simple
-      ExecStart=/bin/bash -c "/usr/bin/avahi-publish -a -R retina.local $(ip route get 1 | awk '{print $7;exit}')"
-      Restart=always
-      RestartSec=10
-
-      [Install]
-      WantedBy=multi-user.target
-
-- name: Enable retina.local alias service on boot
-  file:
-    src: /etc/systemd/system/avahi-alias-retina.service
-    dest: /etc/systemd/system/multi-user.target.wants/avahi-alias-retina.service
     state: link
 
 # 3. Install SDRplay API
