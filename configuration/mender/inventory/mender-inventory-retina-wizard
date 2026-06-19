@@ -1,0 +1,17 @@
+#!/bin/sh
+
+# Reports whether this device is still in its first-run setup wizard, i.e.
+# the retina-node stack has not been deployed yet.
+#
+# node-infra/mender-auto-accept reads this to tell apart two situations that
+# look identical from Mender's auth events alone: a device reflashed and
+# going through onboarding again (new keypair, same node_id — should be
+# auto-deployed the latest stable OS) vs. an already in-service customer
+# node whose Mender key merely rotated (must NOT be force-updated/rebooted).
+
+if [ -f /data/mender-docker-compose/current/manifests/docker-compose.yaml ]; then
+    echo wizard_pending=false
+else
+    echo wizard_pending=true
+fi
+exit 0
