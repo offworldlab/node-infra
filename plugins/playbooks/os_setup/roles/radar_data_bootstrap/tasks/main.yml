@@ -171,6 +171,35 @@
     dest: /etc/systemd/system/multi-user.target.wants/retina-hostname-swap.path
     state: link
 
+# Once the device is renamed to retina, keep owl.local resolving too, so
+# anyone who bookmarked/scripted against the old name during onboarding
+# doesn't lose access. Permanent, mirrors the one-way rename above.
+- name: Install owl.local backwards-compat alias service
+  copy:
+    dest: /etc/systemd/system/avahi-alias-owl.service
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Publish owl.local as a backwards-compat mDNS alias once renamed to retina
+      ConditionPathExists={{ retina_node_manifests_path }}/docker-compose.yaml
+      Requires=avahi-daemon.service
+      After=avahi-daemon.service network-online.target retina-hostname-swap.service
+
+      [Service]
+      Type=simple
+      ExecStart=/bin/bash -c "/usr/bin/avahi-publish -a -R owl.local $(ip route get 1 | awk '{print $7;exit}')"
+      Restart=always
+      RestartSec=10
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Enable owl.local backwards-compat alias service on boot
+  file:
+    src: /etc/systemd/system/avahi-alias-owl.service
+    dest: /etc/systemd/system/multi-user.target.wants/avahi-alias-owl.service
+    state: link
+
 # ======================================================================
 # retina-gui Web Interface
 # ======================================================================

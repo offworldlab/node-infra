@@ -8,7 +8,8 @@
 #   1. Docker CE 27.x & Docker Compose v2 - Container runtime for blah2 services
 #   2. System dependencies (graphviz, libusb, libudev, expect, wireless-tools)
 #   3. Avahi mDNS daemon - .local hostname resolution (owl.local until retina-node
-#      is installed, see radar_data_bootstrap for the retina.local hostname swap)
+#      is installed, see radar_data_bootstrap for the retina.local hostname swap
+#      and the owl.local backwards-compat alias kept alongside it)
 #   4. SDRplay API v3.15.2 - Hardware driver for RSPDuo SDR
 #   5. Mender Docker Update Module and requirements
 #   6. Chrony - NTP clock disciplining for accurate timing
@@ -121,6 +122,7 @@
   apt:
     name:
       - avahi-daemon    # mDNS service for .local hostname advertisement
+      - avahi-utils     # Provides avahi-publish for the owl.local backwards-compat alias
       - libnss-mdns     # Name service switch module for mDNS resolution
     state: present
     update_cache: yes
