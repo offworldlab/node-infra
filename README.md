@@ -48,7 +48,7 @@ During a retina-node install, retina-gui holds an `install.lock` in `/data/retin
 
 ### Node Configuration
 
-After deploying retina-node, visit `http://retina.local` to configure capture settings, location, ADS-B truth source, and tar1090. See [retina-node](https://github.com/offworldlabs/retina-node) for details. (The node renames itself from `owl.local` to `retina.local` once retina-node is deployed; `owl.local` still works and redirects to `retina.local`.)
+After deploying retina-node, visit `http://owl.local` to configure capture settings, location, ADS-B truth source, and tar1090. See [retina-node](https://github.com/offworldlabs/retina-node) for details.
 
 ### Cloudflare Tunnel (Optional)
 
