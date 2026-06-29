@@ -406,8 +406,19 @@
     state: directory
     mode: '0755'
 
-- name: Install wifi-connect UI files 
+- name: Install wifi-connect UI files
   shell: cp -r /tmp/wifi-ui-temp /usr/local/share/wifi-connect/ui
+
+# WiFi is still the preferred path through this portal, but users who get
+# stuck (or simply have a cable handy) should know Ethernet is an option.
+# The UI is a prebuilt static bundle from balena (balena_ui_url) — patch the
+# banner into index.html rather than the JS bundle, since it's a plain HTML
+# insertion that doesn't depend on the bundled app's internals.
+- name: Add 'connect via Ethernet' hint banner to wifi-connect UI
+  replace:
+    path: /usr/local/share/wifi-connect/ui/index.html
+    regexp: '<body>'
+    replace: '<body><div style="background:#1a1a1a;color:#fff;text-align:center;padding:10px;font:14px sans-serif;">Prefer not to set up WiFi here? Plug in an Ethernet cable and visit <strong>http://owl.local</strong> instead.</div>'
 
 - name: Clean up wifi-connect temp files
   file:
@@ -427,6 +438,9 @@
       Description=WiFi Connect Captive Portal
       After=NetworkManager.service
       Wants=NetworkManager.service
+      # Run the ethernet watcher alongside the portal so a cable plugged in
+      # after the portal has already started is noticed without a reboot.
+      Wants=ethernet-watch.timer
       # Note: No Before=retina-gui.service - let GUI start immediately
       # wifi-connect will stop it only if captive portal is actually needed
 
@@ -436,6 +450,9 @@
       ExecStartPre=/bin/sleep 30
       # Only start if WiFi is not connected (using balena's recommended approach)
       ExecStartPre=/bin/bash -c '! iwgetid -r'
+      # Only start if no wired Ethernet device is already connected — plugging
+      # in a cable is a valid alternative to the captive portal.
+      ExecStartPre=/bin/bash -c '! nmcli -t -f TYPE,STATE device status | grep -q "^ethernet:connected"'
       # Stop retina-gui to free port 80 for captive portal
       ExecStartPre=-/bin/systemctl stop retina-gui.service
       ExecStart=/usr/local/sbin/wifi-connect --portal-ssid node-setup
@@ -452,6 +469,38 @@
     src: /etc/systemd/system/wifi-connect.service
     dest: /etc/systemd/system/multi-user.target.wants/wifi-connect.service
     state: link
+
+# 7b. Ethernet watcher — stops an already-running captive portal as soon as a
+# wired connection appears, so a user stuck on node-setup can escape it just
+# by plugging in a cable, without waiting for the 60s Restart=on-failure cycle.
+- name: Create ethernet-watch systemd service
+  copy:
+    dest: /etc/systemd/system/ethernet-watch.service
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Stop wifi-connect captive portal once Ethernet is connected
+      PartOf=wifi-connect.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/bash -c 'nmcli -t -f TYPE,STATE device status | grep -q "^ethernet:connected" && systemctl stop wifi-connect.service || true'
+
+- name: Create ethernet-watch systemd timer
+  copy:
+    dest: /etc/systemd/system/ethernet-watch.timer
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Periodically check for Ethernet while the captive portal is up
+      PartOf=wifi-connect.service
+
+      [Timer]
+      OnActiveSec=5s
+      OnUnitActiveSec=5s
+
+      [Install]
+      WantedBy=wifi-connect.service
 
 # 8. Hold critical packages to prevent breaking auto-upgrades
 - name: Hold Docker packages
