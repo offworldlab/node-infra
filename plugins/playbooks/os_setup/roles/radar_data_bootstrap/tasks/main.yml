@@ -148,6 +148,15 @@
     dest: /etc/systemd/system/multi-user.target.wants/retina-gui.service
     state: link
 
+# Install sdrconnect systemd unit (started/stopped on demand by retina-gui's
+# mode switcher — never enabled for boot, since it would conflict with blah2).
+- name: Copy sdrconnect systemd service
+  copy:
+    src: /tmp/retina-gui/systemd/sdrconnect.service
+    dest: /etc/systemd/system/sdrconnect.service
+    mode: '0644'
+    remote_src: yes
+
 # 10. Configure SSH to read authorized_keys from /data/
 - name: Configure sshd AuthorizedKeysFile for persistent keys
   lineinfile:
