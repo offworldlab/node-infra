@@ -536,8 +536,8 @@
       MODE_FILE=/data/retina-gui/mode.txt
       GRACE_PERIOD_SECONDS=60
 
-      # Don't interfere when spectrum mode is active - blah2 is intentionally stopped
-      if [ -f "$MODE_FILE" ] && [ "$(cat $MODE_FILE)" = "spectrum" ]; then
+      # Don't interfere when spectrum or sdrconnect mode is active - blah2 is intentionally stopped
+      if [ -f "$MODE_FILE" ] && { [ "$(cat $MODE_FILE)" = "spectrum" ] || [ "$(cat $MODE_FILE)" = "sdrconnect" ]; }; then
         exit 0
       fi
 
