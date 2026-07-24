@@ -535,6 +535,7 @@
       PROJECT=retina-node
       MODE_FILE=/data/retina-gui/mode.txt
       GRACE_PERIOD_SECONDS=60
+      RESTART_COUNT_STATE=/run/blah2-rspduo-watchdog.count
 
       # Don't interfere when spectrum or sdrconnect mode is active - blah2 is intentionally stopped
       if [ -f "$MODE_FILE" ] && { [ "$(cat $MODE_FILE)" = "spectrum" ] || [ "$(cat $MODE_FILE)" = "sdrconnect" ]; }; then
@@ -548,15 +549,35 @@
         exit 0
       fi
 
+      # Detect blah2 crash-looping under Docker's own restart policy. RestartCount
+      # only increments when the daemon relaunches the *same* container after it
+      # exits, and resets to 0 whenever this script (or a GUI Apply) recreates it
+      # via `compose down`/`up`. If blah2 is dying and restarting on its own faster
+      # than this 5-minute cron cadence, StartedAt is always fresh - the grace
+      # period below would skip every single run forever, silently masking the
+      # crash loop instead of ever reaching the recovery step.
+      RESTART_COUNT=$(docker inspect -f '{% raw %}{{.RestartCount}}{% endraw %}' blah2 2>/dev/null)
+      PREV_RESTART_COUNT=$(cat "$RESTART_COUNT_STATE" 2>/dev/null)
+      [ -n "$RESTART_COUNT" ] && echo "$RESTART_COUNT" > "$RESTART_COUNT_STATE"
+
+      CRASH_LOOPING=false
+      if [ -n "$RESTART_COUNT" ] && [ -n "$PREV_RESTART_COUNT" ] && [ "$RESTART_COUNT" -gt "$PREV_RESTART_COUNT" ]; then
+        CRASH_LOOPING=true
+        echo "blah2 is crash-looping (RestartCount $PREV_RESTART_COUNT -> $RESTART_COUNT since last check) - bypassing grace period"
+      fi
+
       # Give blah2 a grace period after a (re)start before judging it stale - it
       # needs time to re-acquire the RSPduo and start producing fresh map data,
       # whether the restart just came from this script or a GUI config Apply.
-      CONTAINER_STARTED=$(docker inspect -f '{% raw %}{{.State.StartedAt}}{% endraw %}' blah2 2>/dev/null)
-      if [ -n "$CONTAINER_STARTED" ]; then
-        STARTED_EPOCH=$(date -d "$CONTAINER_STARTED" +%s 2>/dev/null)
-        NOW_EPOCH=$(date +%s)
-        if [ -n "$STARTED_EPOCH" ] && [ $((NOW_EPOCH - STARTED_EPOCH)) -lt $GRACE_PERIOD_SECONDS ]; then
-          exit 0
+      # Skipped while crash-looping (see above) so the recovery step below still runs.
+      if [ "$CRASH_LOOPING" = false ]; then
+        CONTAINER_STARTED=$(docker inspect -f '{% raw %}{{.State.StartedAt}}{% endraw %}' blah2 2>/dev/null)
+        if [ -n "$CONTAINER_STARTED" ]; then
+          STARTED_EPOCH=$(date -d "$CONTAINER_STARTED" +%s 2>/dev/null)
+          NOW_EPOCH=$(date +%s)
+          if [ -n "$STARTED_EPOCH" ] && [ $((NOW_EPOCH - STARTED_EPOCH)) -lt $GRACE_PERIOD_SECONDS ]; then
+            exit 0
+          fi
         fi
       fi
 
