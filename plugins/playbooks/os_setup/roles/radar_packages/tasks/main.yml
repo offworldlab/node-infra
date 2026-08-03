@@ -537,16 +537,34 @@
       GRACE_PERIOD_SECONDS=60
       RESTART_COUNT_STATE=/run/blah2-rspduo-watchdog.count
 
+      # The same lock retina-gui takes for every operation that drives this compose
+      # project (see its restart_lock.py). Taken with flock(1) below.
+      RESTART_LOCK=/data/retina-gui/restart.lock
+
+      # retina-gui's calibrate.lock (see its device_state.py). Auto-Calibrate owns
+      # the SDR for the whole of a run - restarting the stack underneath it does not
+      # just race, it silently corrupts the result: the run applies gain/LNA settings
+      # via blah2's live retune API, which a `compose down`/`up` reverts to whatever
+      # config.yml says, while the run carries on attributing its readings to
+      # settings that are no longer in effect.
+      CALIBRATE_LOCK=/data/retina-gui/calibrate.lock
+      # Mirrors CALIBRATE_LOCK_TIMEOUT in retina-gui's device_state.py - if the GUI
+      # considers a lock this old to be stale, so should this script, or a crashed
+      # calibration would silence the watchdog indefinitely.
+      CALIBRATE_LOCK_TIMEOUT_SECONDS=1200
+
       # Don't interfere when spectrum or sdrconnect mode is active - blah2 is intentionally stopped
       if [ -f "$MODE_FILE" ] && { [ "$(cat $MODE_FILE)" = "spectrum" ] || [ "$(cat $MODE_FILE)" = "sdrconnect" ]; }; then
         exit 0
       fi
 
-      # Don't race a restart already in flight - a GUI config Apply (or another
-      # instance of this script) may already be running `docker compose down`/`up`
-      # against the same project; piling another one on top can corrupt both.
-      if pgrep -f "docker compose -p $PROJECT" > /dev/null; then
-        exit 0
+      # Don't interrupt an auto-calibration run (see CALIBRATE_LOCK above).
+      if [ -f "$CALIBRATE_LOCK" ]; then
+        LOCK_MTIME=$(stat -c %Y "$CALIBRATE_LOCK" 2>/dev/null || echo 0)
+        LOCK_AGE=$(( $(date +%s) - LOCK_MTIME ))
+        if [ "$LOCK_AGE" -lt "$CALIBRATE_LOCK_TIMEOUT_SECONDS" ]; then
+          exit 0
+        fi
       fi
 
       # Detect blah2 crash-looping under Docker's own restart policy. RestartCount
@@ -581,12 +599,34 @@
         fi
       fi
 
-      FIRST_CHAR=$(curl -s 127.0.0.1:3000/api/map | head -c1)
-      TIMESTAMP=$(curl -s 127.0.0.1:3000/api/map | head -c23 | tail -c10)
+      # --max-time so an unresponsive API cannot stall this script indefinitely.
+      # Without it a hung endpoint - the exact condition being checked for - leaves
+      # one instance blocked while cron keeps starting more every 5 minutes.
+      FIRST_CHAR=$(curl -s --max-time 10 127.0.0.1:3000/api/map | head -c1)
+      TIMESTAMP=$(curl -s --max-time 10 127.0.0.1:3000/api/map | head -c23 | tail -c10)
       CURR_TIMESTAMP=$(date +%s)
       DIFF_TIMESTAMP=$(($CURR_TIMESTAMP-$TIMESTAMP))
 
       if [[ "$FIRST_CHAR" != "{" ]] || [[ $DIFF_TIMESTAMP -gt 60 ]]; then
+        # Take the same lock retina-gui holds for a config apply, and hold it for
+        # the whole down/up. This replaces a `pgrep -f "docker compose -p $PROJECT"`
+        # guard that could not work: retina-gui's apply spends ~30s in an SDRplay
+        # settle window with no compose process running at all, so pgrep saw an idle
+        # system and let this script fire `compose down` straight into the middle of
+        # an apply - which is what leaves containers renamed to <hash>_<name> and the
+        # daemon rejecting the real name as already in use. Confirmed live: during
+        # that window the lock is held and no compose process exists.
+        #
+        # -n (don't wait): if a restart is already in flight it will very likely
+        # resolve what this check just detected, and cron comes back in 5 minutes
+        # regardless. Waiting would only stack up instances.
+        mkdir -p "$(dirname "$RESTART_LOCK")" 2>/dev/null || true
+        exec 9>"$RESTART_LOCK" || exit 0
+        if ! flock -n 9; then
+          echo "A stack restart is already in flight - skipping this check"
+          exit 0
+        fi
+
         docker compose -p $PROJECT -f $COMPOSE_FILE down
         kill -9 $(pgrep -f "sdrplay_apiService") 2>/dev/null || true
         systemctl restart sdrplay.service
