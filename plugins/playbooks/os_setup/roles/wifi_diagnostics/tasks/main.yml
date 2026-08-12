@@ -1,0 +1,97 @@
+---
+# Playbook: wifi_diagnostics
+# Version: 0.1.0
+#
+# Purpose: Keep enough WiFi history on persistent storage to diagnose a
+#          dropout after the fact.
+#
+# Motivation: the investigation into node-setup appearing mid-uptime ran out
+# of evidence. The journal is volatile and shared with Docker's container
+# output, so it had already evicted the boot and every NetworkManager event
+# by the time anyone looked, and nothing anywhere recorded signal strength,
+# which AP the node was on, the regulatory domain, or when the captive portal
+# actually ran.
+#
+# Two recorders, both writing to /data/log so they survive reboots:
+#   wifi-diag           - radio state, event-driven, with RAM-buffered context
+#   archive-network-log - NetworkManager's own journal, cursor-based
+#
+# Flash cost is deliberately small: wifi-diag samples once a minute into
+# tmpfs and only writes to /data on a state change or an hourly heartbeat.
+
+- name: Install wifi-diag recorder
+  copy:
+    src: wifi-diag
+    dest: /usr/local/sbin/wifi-diag
+    mode: '0755'
+
+- name: Install NetworkManager journal archiver
+  copy:
+    src: archive-network-log
+    dest: /usr/local/sbin/archive-network-log
+    mode: '0755'
+
+- name: Create wifi-diag systemd service
+  copy:
+    dest: /etc/systemd/system/wifi-diag.service
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Record WiFi radio state for post-hoc diagnosis
+      After=NetworkManager.service
+      Wants=NetworkManager.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/wifi-diag
+
+- name: Create wifi-diag systemd timer
+  copy:
+    dest: /etc/systemd/system/wifi-diag.timer
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Sample WiFi radio state every minute
+
+      [Timer]
+      OnBootSec=45s
+      OnUnitActiveSec=60s
+
+      [Install]
+      WantedBy=timers.target
+
+- name: Create network log archiver systemd service
+  copy:
+    dest: /etc/systemd/system/archive-network-log.service
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Archive the NetworkManager journal to persistent storage
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/archive-network-log
+
+- name: Create network log archiver systemd timer
+  copy:
+    dest: /etc/systemd/system/archive-network-log.timer
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Periodically archive the NetworkManager journal
+
+      [Timer]
+      OnBootSec=2min
+      OnUnitActiveSec=5min
+
+      [Install]
+      WantedBy=timers.target
+
+- name: Enable diagnostics timers for boot
+  file:
+    src: "/etc/systemd/system/{{ item }}"
+    dest: "/etc/systemd/system/timers.target.wants/{{ item }}"
+    state: link
+  loop:
+    - wifi-diag.timer
+    - archive-network-log.timer

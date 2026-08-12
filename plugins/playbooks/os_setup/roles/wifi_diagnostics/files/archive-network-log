@@ -1,0 +1,38 @@
+#!/bin/bash
+# Copy NetworkManager's journal entries to persistent storage.
+#
+# The journal is Storage=volatile with RuntimeMaxUse=50M and Docker logs into
+# the same ring, so NetworkManager's history is evicted within hours and lost
+# entirely at reboot. On a live node, "journalctl -u NetworkManager --since
+# '3 days ago'" returned nothing while the node had been up for two days.
+# That is why the mid-uptime dropout could not be diagnosed after the fact.
+#
+# Only NetworkManager is archived, deliberately. Container logs stay in RAM
+# where they cost no flash writes; NetworkManager produces orders of magnitude
+# less — measured at ~18 lines/day on a quiet node — so keeping weeks of it is
+# effectively free.
+
+set -u
+
+LOG_DIR=/data/log
+LOG_FILE="${LOG_DIR}/networkmanager.log"
+CURSOR="${LOG_DIR}/networkmanager.cursor"
+MAX_BYTES=$((5 * 1024 * 1024))
+
+mkdir -p "${LOG_DIR}"
+
+# --cursor-file resumes where the previous run stopped, so each run appends
+# only new entries rather than rewriting the file. The timer runs far more
+# often than the RAM journal takes to turn over, so nothing is missed.
+#
+# journalctl prints "-- No entries --" on stdout when nothing is new, which
+# would otherwise accumulate one junk line per idle run.
+journalctl -u NetworkManager --cursor-file="${CURSOR}" \
+    --no-pager -o short-iso 2>/dev/null \
+    | grep -v '^-- No entries --$' >> "${LOG_FILE}" || true
+
+# Two generations of 5M. Older network history is not worth more flash.
+if [ -f "${LOG_FILE}" ] \
+   && [ "$(stat -c %s "${LOG_FILE}" 2>/dev/null || echo 0)" -gt "${MAX_BYTES}" ]; then
+    mv -f "${LOG_FILE}" "${LOG_FILE}.1"
+fi

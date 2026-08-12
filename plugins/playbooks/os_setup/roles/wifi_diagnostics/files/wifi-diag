@@ -1,0 +1,142 @@
+#!/bin/bash
+# WiFi diagnostics recorder.
+#
+# Exists because the investigation into node-setup appearing mid-uptime ran
+# out of evidence. The journal is volatile (50M of RAM, shared with Docker's
+# container output) and had already evicted the boot and every
+# NetworkManager event before anyone could look. Nothing recorded signal
+# strength, which AP the node was on, or when the captive portal ran.
+#
+# Flash-conscious by design. Per-minute samples land in a ring buffer on
+# /run (tmpfs, no flash writes) and are flushed to /data only when something
+# material changes, so a dropout arrives with ~30 minutes of preceding
+# context while a quiet node costs one heartbeat line an hour.
+#
+# Read the result with:  sudo tail -f /data/log/wifi-diag.log
+
+set -u
+
+DEV=wlan0
+IWGETID=/usr/sbin/iwgetid
+LOG_DIR=/data/log
+LOG="${LOG_DIR}/wifi-diag.log"
+RING=/run/wifi-diag.ring
+LAST=/run/wifi-diag.last
+BOOTED=/run/wifi-diag.booted
+BEATS=/run/wifi-diag.beats
+
+RING_LEN=30              # samples of context kept in RAM (~30 min)
+HEARTBEAT_EVERY=60       # samples between baseline lines written to flash
+MAX_BYTES=$((5 * 1024 * 1024))
+
+mkdir -p "${LOG_DIR}"
+
+ts()     { date -u +%Y-%m-%dT%H:%M:%SZ; }
+emit()   { echo "$(ts) $*" >> "${LOG}"; }
+
+rotate() {
+    [ -f "${LOG}" ] || return 0
+    local sz
+    sz=$(stat -c %s "${LOG}" 2>/dev/null || echo 0)
+    [ "${sz}" -gt "${MAX_BYTES}" ] && mv -f "${LOG}" "${LOG}.1"
+    return 0
+}
+
+# ---------------------------------------------------------------- sample --
+
+# /proc/net/wireless columns: link level noise nwid crypt frag retry misc
+# missed_beacon. Values carry a trailing '.' which has to come off before
+# they can be compared numerically.
+read_radio() {
+    awk -v d="${DEV}:" '
+        $1 == d { gsub(/\./,"",$3); gsub(/\./,"",$4); gsub(/\./,"",$5)
+                  printf "%d %d %d %d %d\n", $3, $4, $5, $9, $11; found=1 }
+        END { if (!found) print "0 0 0 0 0" }
+    ' /proc/net/wireless 2>/dev/null
+}
+
+read -r quality signal noise retry missed <<<"$(read_radio)"
+
+ssid=$(${IWGETID} -r 2>/dev/null); ssid=${ssid:-none}
+# Take the last field, not a sed up to ':' — the BSSID contains colons of its
+# own and a greedy match keeps only the final octet.
+bssid=$(${IWGETID} -a 2>/dev/null | awk '{print $NF}'); bssid=${bssid:-none}
+chan=$(${IWGETID} -c 2>/dev/null | awk -F: '{print $NF}'); chan=${chan:-none}
+
+nmstate=$(nmcli -t -f TYPE,STATE device status 2>/dev/null \
+          | awk -F: '$1 == "wifi" { print $2; exit }')
+nmstate=${nmstate:-unknown}
+
+ip=$(ip -4 -o addr show "${DEV}" 2>/dev/null | awk '{print $4; exit}')
+ip=${ip:-none}
+
+carrier=$(cat "/sys/class/net/${DEV}/carrier_changes" 2>/dev/null || echo 0)
+oper=$(cat "/sys/class/net/${DEV}/operstate" 2>/dev/null || echo unknown)
+
+portal=$(systemctl show wifi-connect -p ActiveState --value 2>/dev/null)
+nrestarts=$(systemctl show wifi-connect -p NRestarts --value 2>/dev/null)
+
+sample="state=${nmstate} oper=${oper} ssid=${ssid} bssid=${bssid} chan=${chan}"
+sample="${sample} signal=${signal}dBm quality=${quality} noise=${noise}"
+sample="${sample} retry=${retry} missed_beacon=${missed} ip=${ip}"
+sample="${sample} carrier_changes=${carrier} portal=${portal} nrestarts=${nrestarts}"
+
+# The fields whose change is worth a flash write. Signal and counters move
+# constantly and would flush on every run, so they ride along in the sample
+# rather than triggering it.
+sig="${nmstate}|${oper}|${ssid}|${bssid}|${chan}|${ip}|${portal}"
+
+# ------------------------------------------------------------ ring buffer --
+
+echo "$(ts) ${sample}" >> "${RING}"
+tail -n "${RING_LEN}" "${RING}" > "${RING}.tmp" 2>/dev/null && mv -f "${RING}.tmp" "${RING}"
+
+# ----------------------------------------------------------- boot context --
+
+if [ ! -f "${BOOTED}" ]; then
+    touch "${BOOTED}"
+    rotate
+    emit "EVENT=boot regdom=$(cat /sys/module/cfg80211/parameters/ieee80211_regdom 2>/dev/null || echo '?')" \
+         "kernel=$(uname -r)" \
+         "firmware=$(dmesg 2>/dev/null | grep -o 'Firmware: BCM[^ ]* .*version [^ ]*' | tail -1 | tr ' ' '_')" \
+         "powersave=$(dmesg 2>/dev/null | grep -o 'set_power_mgmt: power save [a-z]*' | tail -1 | awk '{print $NF}')"
+    emit "EVENT=boot_state ${sample}"
+    echo "${sig}" > "${LAST}"
+    echo 0 > "${BEATS}"
+    exit 0
+fi
+
+# ---------------------------------------------------------------- events --
+
+prev=$(cat "${LAST}" 2>/dev/null || echo "")
+
+if [ "${sig}" != "${prev}" ]; then
+    rotate
+    emit "EVENT=change ${sample}"
+    # A change is the moment the preceding half hour becomes interesting, so
+    # spend the flash write here and nowhere else.
+    if [ -s "${RING}" ]; then
+        emit "EVENT=context_begin (${RING_LEN} preceding samples)"
+        sed 's/^/    /' "${RING}" >> "${LOG}"
+        emit "EVENT=context_end"
+    fi
+    echo "${sig}" > "${LAST}"
+    echo 0 > "${BEATS}"
+    exit 0
+fi
+
+# ------------------------------------------------------------- heartbeat --
+
+beats=$(cat "${BEATS}" 2>/dev/null || echo 0)
+case "${beats}" in ''|*[!0-9]*) beats=0 ;; esac
+beats=$((beats + 1))
+
+if [ "${beats}" -ge "${HEARTBEAT_EVERY}" ]; then
+    rotate
+    emit "EVENT=heartbeat ${sample}"
+    echo 0 > "${BEATS}"
+else
+    echo "${beats}" > "${BEATS}"
+fi
+
+exit 0
