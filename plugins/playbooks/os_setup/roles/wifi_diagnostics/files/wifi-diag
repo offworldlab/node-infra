@@ -98,6 +98,14 @@ lastact=${lastact:-0}
 portal=$(systemctl show wifi-connect -p ActiveState --value 2>/dev/null)
 nrestarts=$(systemctl show wifi-connect -p NRestarts --value 2>/dev/null)
 
+# Only "active" means a portal is actually serving and holding wlan0. An
+# unfixed node cycles wifi-connect roughly every 90s and its ActiveState
+# churns through activating/auto-restart/failed; treating that as material
+# would flush a 30-line context block on every cycle and shred the log.
+# The raw state and restart count still ride along in the sample.
+portal_up=no
+[ "${portal}" = "active" ] && portal_up=yes
+
 sample="state=${nmstate} oper=${oper} ssid=${ssid} bssid=${bssid} chan=${chan} freq=${freq}"
 sample="${sample} signal=${signal}dBm quality=${quality} noise=${noise}"
 sample="${sample} retry=${retry} missed_beacon=${missed} ip=${ip}"
@@ -107,7 +115,7 @@ sample="${sample} portal=${portal} nrestarts=${nrestarts}"
 # The fields whose change is worth a flash write. Signal and counters move
 # constantly and would flush on every run, so they ride along in the sample
 # rather than triggering it.
-sig="${nmstate}|${oper}|${ssid}|${bssid}|${chan}|${freq}|${ip}|${portal}|${lastact}"
+sig="${nmstate}|${oper}|${ssid}|${bssid}|${chan}|${freq}|${ip}|${portal_up}|${lastact}"
 
 # ------------------------------------------------------------ ring buffer --
 
