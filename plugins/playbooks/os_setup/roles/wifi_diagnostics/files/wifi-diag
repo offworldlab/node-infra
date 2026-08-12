@@ -73,18 +73,34 @@ ip=${ip:-none}
 carrier=$(cat "/sys/class/net/${DEV}/carrier_changes" 2>/dev/null || echo 0)
 oper=$(cat "/sys/class/net/${DEV}/operstate" 2>/dev/null || echo unknown)
 
+# Latest activation time across saved WiFi profiles. This is the only reliable
+# way to notice a dropout that began and ended between two samples: the node
+# looks connected at both ends, but the timestamp moves.
+#
+# Verified against a deliberate 20s blip — nothing else caught it.
+# carrier_changes did NOT move across any disconnect tested (stuck at 4), and
+# missed_beacon read 0 throughout, so neither can be trusted on this driver
+# even though both are recorded below.
+lastact=$(nmcli -t -f NAME,TYPE connection show 2>/dev/null \
+          | awk -F: '$2 == "802-11-wireless" { print $1 }' \
+          | while read -r n; do
+                nmcli -g connection.timestamp connection show "$n" 2>/dev/null
+            done | sort -n | tail -1)
+lastact=${lastact:-0}
+
 portal=$(systemctl show wifi-connect -p ActiveState --value 2>/dev/null)
 nrestarts=$(systemctl show wifi-connect -p NRestarts --value 2>/dev/null)
 
 sample="state=${nmstate} oper=${oper} ssid=${ssid} bssid=${bssid} chan=${chan}"
 sample="${sample} signal=${signal}dBm quality=${quality} noise=${noise}"
 sample="${sample} retry=${retry} missed_beacon=${missed} ip=${ip}"
-sample="${sample} carrier_changes=${carrier} portal=${portal} nrestarts=${nrestarts}"
+sample="${sample} carrier_changes=${carrier} last_activation=${lastact}"
+sample="${sample} portal=${portal} nrestarts=${nrestarts}"
 
 # The fields whose change is worth a flash write. Signal and counters move
 # constantly and would flush on every run, so they ride along in the sample
 # rather than triggering it.
-sig="${nmstate}|${oper}|${ssid}|${bssid}|${chan}|${ip}|${portal}"
+sig="${nmstate}|${oper}|${ssid}|${bssid}|${chan}|${ip}|${portal}|${lastact}"
 
 # ------------------------------------------------------------ ring buffer --
 
