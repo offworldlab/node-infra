@@ -62,6 +62,13 @@ ssid=$(${IWGETID} -r 2>/dev/null); ssid=${ssid:-none}
 # own and a greedy match keeps only the final octet.
 bssid=$(${IWGETID} -a 2>/dev/null | awk '{print $NF}'); bssid=${bssid:-none}
 chan=$(${IWGETID} -c 2>/dev/null | awk -F: '{print $NF}'); chan=${chan:-none}
+# Frequency is the fallback, and often the only one available. On a node
+# associated at 5.785 GHz (ch 157) under regdom 00, "iwgetid -c" exits 255
+# and returns nothing — the regulatory database has no entry to map the
+# frequency to a channel number — while "-f" still reports it. An AP moving
+# band or channel is exactly the event worth catching, so record both.
+freq=$(${IWGETID} -f 2>/dev/null | awk -F: '{print $NF}' | tr -d ' ')
+freq=${freq:-none}
 
 nmstate=$(nmcli -t -f TYPE,STATE device status 2>/dev/null \
           | awk -F: '$1 == "wifi" { print $2; exit }')
@@ -91,7 +98,7 @@ lastact=${lastact:-0}
 portal=$(systemctl show wifi-connect -p ActiveState --value 2>/dev/null)
 nrestarts=$(systemctl show wifi-connect -p NRestarts --value 2>/dev/null)
 
-sample="state=${nmstate} oper=${oper} ssid=${ssid} bssid=${bssid} chan=${chan}"
+sample="state=${nmstate} oper=${oper} ssid=${ssid} bssid=${bssid} chan=${chan} freq=${freq}"
 sample="${sample} signal=${signal}dBm quality=${quality} noise=${noise}"
 sample="${sample} retry=${retry} missed_beacon=${missed} ip=${ip}"
 sample="${sample} carrier_changes=${carrier} last_activation=${lastact}"
@@ -100,7 +107,7 @@ sample="${sample} portal=${portal} nrestarts=${nrestarts}"
 # The fields whose change is worth a flash write. Signal and counters move
 # constantly and would flush on every run, so they ride along in the sample
 # rather than triggering it.
-sig="${nmstate}|${oper}|${ssid}|${bssid}|${chan}|${ip}|${portal}|${lastact}"
+sig="${nmstate}|${oper}|${ssid}|${bssid}|${chan}|${freq}|${ip}|${portal}|${lastact}"
 
 # ------------------------------------------------------------ ring buffer --
 
