@@ -48,5 +48,9 @@ balena_ui_url: "https://github.com/balena-os/wifi-connect/releases/download/v4.1
 
 # retina-gui web interface
 retina_gui_repo_url: "https://github.com/offworldlabs/retina-gui.git"
-retina_gui_version: "v0.6.0"  # mender-docker-compose path
+# v0.7.0 is the floor for telemetry: it is the first version that persists the
+# three consent records retina-telemetry needs to register. On v0.6.0 a node
+# comes up, finds no records, refuses to register, and says so only in a status
+# document — which v0.7.0 is also the first version able to read.
+retina_gui_version: "v0.7.0"  # mender-docker-compose path
 
