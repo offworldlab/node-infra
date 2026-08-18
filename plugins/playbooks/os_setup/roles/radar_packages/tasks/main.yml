@@ -302,6 +302,12 @@
     dest: "/opt/sdrconnect-{{ sdrconnect_version }}/"
     remote_src: yes
     creates: "/opt/sdrconnect-{{ sdrconnect_version }}/sdrconnect_linux-arm64_93b44446f.tar.gz"
+    # SDRplay's tarball embeds its build machine's uid/gid (197609), which
+    # doesn't exist in this build container - plain tar tries to chown to it
+    # and fails outright. --no-same-owner extracts as whoever is running this
+    # (root) instead of trying to preserve the archive's original owner.
+    extra_opts:
+      - --no-same-owner
 
 - name: Extract SDRconnect itself from the bundle
   unarchive:
@@ -309,6 +315,8 @@
     dest: /opt/sdrconnect/
     remote_src: yes
     creates: /opt/sdrconnect
+    extra_opts:
+      - --no-same-owner
 
 - name: Fix SDRconnect shared library permissions
   ansible.builtin.file:
