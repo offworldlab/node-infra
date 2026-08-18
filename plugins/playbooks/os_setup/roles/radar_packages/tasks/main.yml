@@ -277,7 +277,7 @@
   apt:
     name:
       - libmp3lame-dev
-      - file              # Required by SDRconnect installer for platform detection
+      - file              # Left in place from the old .run installer's requirements; unconfirmed whether SDRconnect itself still needs it now that install is a plain tar extract
       - libasound2        # Required by SDRconnect for audio output (64-bit time_t version)
     state: present
     update_cache: yes
@@ -288,54 +288,27 @@
     state: directory
     mode: '0755'
 
-- name: Download SDRconnect installer
-  get_url:
-    url: "{{ sdrconnect_url }}"
-    dest: "/opt/sdrconnect-{{ sdrconnect_version }}/SDRconnect_linux-arm64_583e89db6.run"
-    mode: '0755'
+# SDRplay stopped shipping SDRconnect as a self-extracting .run installer -
+# sdrconnect_url now points at a plain tarball-of-tarballs (rigcontrol +
+# sdrconnect, each their own .tar.gz + .sha256), so there is no installer
+# wizard to drive any more. rigcontrol is deliberately left un-extracted:
+# it wasn't part of this OS before and installing it is a separate decision,
+# not an implied side effect of this fix. The inner filename is hardcoded,
+# same as the old installer's filename was - if SDRplay renames it again on
+# the next update, this needs bumping the same way that did.
+- name: Download and extract the SDRconnect archive bundle
+  unarchive:
+    src: "{{ sdrconnect_url }}"
+    dest: "/opt/sdrconnect-{{ sdrconnect_version }}/"
+    remote_src: yes
+    creates: "/opt/sdrconnect-{{ sdrconnect_version }}/sdrconnect_linux-arm64_93b44446f.tar.gz"
 
-- name: Install SDRconnect (automated with expect)
-  shell: |
-    expect << 'EOF'
-    set timeout 120
-    log_user 1
-
-    spawn ./SDRconnect_linux-arm64_583e89db6.run
-
-    # Press RETURN to view license
-    expect "Press RETURN"
-    send "\r"
-
-    # Wait for 'more' pager, then quit
-    sleep 1
-    send "q"
-
-    # Accept license
-    expect "Please answer y or n"
-    send "y\r"
-
-    # Accept default installation location (/opt/sdrconnect)
-    expect "Installation location"
-    send "\r"
-
-    # Confirm installation
-    expect "y/n"
-    send "y\r"
-
-    # Skip desktop menu entry (headless device)
-    expect "menu entry"
-    send "n\r"
-
-    # Skip background service (would conflict with blah2)
-    expect "background service"
-    send "n\r"
-
-    expect eof
-    EOF
-  args:
-    chdir: "/opt/sdrconnect-{{ sdrconnect_version }}"
+- name: Extract SDRconnect itself from the bundle
+  unarchive:
+    src: "/opt/sdrconnect-{{ sdrconnect_version }}/sdrconnect_linux-arm64_93b44446f.tar.gz"
+    dest: /opt/sdrconnect/
+    remote_src: yes
     creates: /opt/sdrconnect
-  register: sdrconnect_output
 
 - name: Fix SDRconnect shared library permissions
   ansible.builtin.file:
@@ -345,7 +318,6 @@
     - /opt/sdrconnect/libHarfBuzzSharp.so
     - /opt/sdrconnect/libSkiaSharp.so
     - /opt/sdrconnect/swig_bindings.so
-    - /opt/sdrconnect/sdrconnect.ico
 
 - name: Clean up SDRconnect installer
   file:
