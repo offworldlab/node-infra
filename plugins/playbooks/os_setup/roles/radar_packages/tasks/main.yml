@@ -309,12 +309,22 @@
     extra_opts:
       - --no-same-owner
 
+- name: Create SDRconnect install directory
+  file:
+    path: /opt/sdrconnect
+    state: directory
+    mode: '0755'
+
 - name: Extract SDRconnect itself from the bundle
   unarchive:
     src: "/opt/sdrconnect-{{ sdrconnect_version }}/sdrconnect_linux-arm64_93b44446f.tar.gz"
     dest: /opt/sdrconnect/
     remote_src: yes
-    creates: /opt/sdrconnect
+    # Checks for the binary, not the directory - the directory now always
+    # exists by the time this runs (previous task creates it unconditionally
+    # so unarchive has a dest to extract into), so guarding on it here would
+    # make this look already-done on every run and skip extracting entirely.
+    creates: /opt/sdrconnect/SDRconnect
     extra_opts:
       - --no-same-owner
 
