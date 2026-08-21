@@ -52,13 +52,13 @@ After deploying retina-node, visit `http://owl.local` to configure capture setti
 
 ### Addressing nodes
 
-Each node has a permanent name of its own, `ret<node_id>.local`, derived from the Mender node_id and unchanged for the life of the board. It is shown on the node's home page and is the address to bookmark.
+Each node has a permanent name of its own, `ret<node_id>.local`, derived from the Mender node_id and unchanged for the life of the board. It is shown under **Configuration > This node** and is the address to bookmark.
 
 `owl.local` is a shared entry point published by *every* node at once, so it reaches whichever one answers first. With a single node on the network it redirects to that node. With more than one it shows a list of every node found, each linking to its own `ret<node_id>.local`. A node dropping off the network does not take `owl.local` with it — the others were already answering it.
 
 Use `owl.local` to find a node, and `ret<node_id>.local` to work with one. In particular **do not use `owl.local` for SSH**: it can resolve to a different node between connections, which will trip `REMOTE HOST IDENTIFICATION HAS CHANGED`.
 
-Nodes can be given a friendly name from the home page. It is only a label for the node list — nothing is addressed by it, so renaming never breaks a bookmark or an SSH config.
+Nodes can be given a friendly name under **Configuration > This node**. It is only a label for the node list, so renaming never breaks a bookmark or an SSH config. That section also shows the node's own `ret<node_id>.local` address.
 
 ### Cloudflare Tunnel (Optional)
 
@@ -82,7 +82,7 @@ ssh node@ret<node_id>.local
 ssh node@<ip-address>
 ```
 
-Always SSH to the node's own `ret<node_id>.local`, never to `owl.local` — that name is answered by every node on the network, so which host you land on can change between connections and SSH will refuse on the host key mismatch. The node's page shows its name.
+Always SSH to the node's own `ret<node_id>.local`, never to `owl.local` — that name is answered by every node on the network, so which host you land on can change between connections and SSH will refuse on the host key mismatch. **Configuration > This node** shows its address.
 
 Keys persist across reboots and OTA updates.
 
