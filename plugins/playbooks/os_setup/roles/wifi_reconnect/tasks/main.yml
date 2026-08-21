@@ -1,0 +1,78 @@
+---
+# Playbook: wifi_reconnect
+# Version: 0.2.0
+#
+# Purpose: Keep a node on its own WiFi network without help - after a router
+#          reboot or outage, and out of the node-setup captive portal.
+#
+# The rule: if a network we hold credentials for is visible, we should be on
+# it. Neither NetworkManager having given up nor the portal being open is a
+# good enough reason not to be.
+#
+# NetworkManager stops autoconnecting a profile after four failed attempts and
+# will not retry until a carrier change or an NM restart, which never comes on
+# a headless node. The limit is not settable from NetworkManager.conf, so an
+# explicit activation from outside is the only route - and a better one, since
+# it clears the block rather than raising a ceiling.
+#
+# The captive portal is the other half. It converts wlan0 to an AP, has no
+# activity timeout by default, and stops retina-gui while it runs. But its own
+# purpose is to show a list of nearby networks, so the radio can still scan
+# from inside it - verified on hardware. If the node can see its own network
+# while sitting in node-setup, node-setup is the wrong state.
+#
+# Scope: one script, one timer. No changes to NetworkManager configuration, to
+# power saving, or to when the portal is first offered.
+
+- name: Install wifi-reconnect
+  copy:
+    src: wifi-reconnect
+    dest: /usr/local/sbin/wifi-reconnect
+    mode: '0755'
+
+- name: Create wifi-reconnect systemd service
+  copy:
+    dest: /etc/systemd/system/wifi-reconnect.service
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Rejoin the saved WiFi network whenever it is reachable
+      After=NetworkManager.service
+      Wants=NetworkManager.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/wifi-reconnect
+      # A scan and an activation are each capped inside the script. This is the
+      # backstop for anything else wedging, and stops runs stacking up.
+      TimeoutStartSec=90
+
+- name: Create wifi-reconnect systemd timer
+  copy:
+    dest: /etc/systemd/system/wifi-reconnect.timer
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Check whether the saved WiFi network is reachable
+
+      [Timer]
+      # OnBootSec gives NetworkManager room to bring the network up on its own
+      # before the first check counts anything against it.
+      OnBootSec=45s
+      # Long enough that a scan finishes comfortably inside one period, short
+      # enough that a returning router is rejoined within about a minute.
+      OnUnitActiveSec=45s
+      # systemd defaults to a minute of slop, which it will spend batching this
+      # against other wakeups. Measured on a live node: a disconnect at 12:23:52
+      # was not noticed until 12:25:30, 98s later on a 45s timer. Recovery
+      # latency is the whole point here, so the period has to mean what it says.
+      AccuracySec=1s
+
+      [Install]
+      WantedBy=timers.target
+
+- name: Enable wifi-reconnect timer for boot
+  file:
+    src: /etc/systemd/system/wifi-reconnect.timer
+    dest: /etc/systemd/system/timers.target.wants/wifi-reconnect.timer
+    state: link
