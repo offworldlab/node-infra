@@ -84,6 +84,9 @@
     - role: radar_packages # Install Radar Packages
       become: True
       become_user: root
+    - role: wifi_reconnect # Rejoin the saved network after an outage
+      become: True
+      become_user: root
     - role: cpu_governor # Set CPU governor to schedutil for better performance
       become: True
       become_user: root

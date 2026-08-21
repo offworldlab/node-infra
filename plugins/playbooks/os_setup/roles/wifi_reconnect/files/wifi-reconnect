@@ -1,0 +1,289 @@
+#!/bin/bash
+# Get a node back onto its own WiFi network, including out of node-setup.
+#
+# ------------------------------------------------------------- the rule ---
+#
+# If a network we hold credentials for is visible, we should be on it. Nothing
+# else is a good enough reason not to be - not NetworkManager having given up,
+# and not the captive portal being open. Everything below is that one rule.
+#
+# --------------------------------------------------------- what goes wrong -
+#
+# 1. NetworkManager gives up. After connection.autoconnect-retries failed
+#    attempts (default 4) it marks the profile blocked and will not try again
+#    until a carrier change or an NM restart. On a headless node neither
+#    happens, so a router that returns five minutes after a reboot finds the
+#    node sitting there with its own network in range, doing nothing.
+#
+#    It cannot be fixed in NetworkManager.conf: autoconnect-retries is not a
+#    valid key in the [connection] defaults section and NM logs it as unknown
+#    (verified on hardware). An explicit `nmcli device connect` is both the
+#    only route and the better one, since it clears the block outright.
+#
+# 2. The captive portal takes the radio and keeps it. wifi-connect guards
+#    itself with a single instantaneous "is WiFi down right now?" check and
+#    retries every ~90s forever, so an outage is very likely to coincide with
+#    one. It then converts wlan0 to an AP and, with balena's
+#    --activity-timeout defaulting to none, waits indefinitely for a user who
+#    may never come. It also stops retina-gui and does not restart it while it
+#    runs, so owl.local dies at the same time.
+#
+#    Reproduced on a live node running owl-os-pi5-v0.15.0: a 70 second outage
+#    was enough, and the portal was still holding the radio with retina-gui
+#    stopped 35 minutes later. A router reboot takes one to three minutes, so
+#    this is the ordinary case rather than an edge case.
+#
+# ------------------------------------------------- why a scan is the answer -
+#
+# The portal's whole purpose is to show the user a list of nearby networks, so
+# the radio can scan while it is serving. Measured on a live node with the
+# portal up and wlan0 in AP mode:
+#
+#     iw dev wlan0 scan       -> 24 BSSes, a fresh scan, not the cache
+#     nmcli --rescan yes      -> 24 entries, home SSID among them
+#     AP afterwards           -> still type AP, still serving
+#
+# So the node can see its own network from inside node-setup. And if it can
+# see it, being in node-setup is the wrong state: there is nothing for a user
+# to choose that the node cannot do for itself. That is the whole design.
+#
+# Deliberately narrow. No changes to NetworkManager's configuration, to power
+# saving, or to when the portal is first offered.
+#
+# Read the record with:  sudo tail -f /data/log/wifi-reconnect.log
+
+set -u
+
+STATE_DIR=/run/wifi-reconnect
+DOWN_SINCE="${STATE_DIR}/down-since"   # epoch the outage began
+NUDGES="${STATE_DIR}/nudges"           # activations attempted this outage
+LAST_RC="${STATE_DIR}/last-rc"         # exit status of the most recent one
+SEEN="${STATE_DIR}/seen"               # epoch home first became visible again
+REPORTED="${STATE_DIR}/reported"       # epoch of the last still-down line
+STARTED="${STATE_DIR}/started"         # marks the first run since boot
+
+LOG_DIR=/data/log
+LOG="${LOG_DIR}/wifi-reconnect.log"
+MAX_BYTES=$((2 * 1024 * 1024))
+
+CONNECT_WAIT=20     # cap on one activation; must stay under the timer period
+SCAN_TIMEOUT=25     # cap on one scan
+STILL_DOWN_EVERY=1800
+
+# Must match --portal-ssid in wifi-connect.service.
+PORTAL_SSID=node-setup
+
+mkdir -p "${STATE_DIR}" "${LOG_DIR}"
+
+now() { date +%s; }
+ts()  { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+rotate() {
+    [ -f "${LOG}" ] || return 0
+    local sz
+    sz=$(stat -c %s "${LOG}" 2>/dev/null || echo 0)
+    [ "${sz}" -gt "${MAX_BYTES}" ] && mv -f "${LOG}" "${LOG}.1"
+    return 0
+}
+emit() { rotate; echo "$(ts) $*" >> "${LOG}"; }
+
+read_int() {
+    local v
+    v=$(cat "$1" 2>/dev/null) || v=0
+    [[ ${v} =~ ^[0-9]+$ ]] || v=0
+    echo "${v}"
+}
+
+# Device and state together, so what we test and what we act on cannot
+# disagree. An earlier version read association from iwgetid but reconnected
+# through nmcli, and when the two disagreed the nudge bounced a healthy link.
+wifi_row() {
+    nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null \
+        | awk -F: '$2 == "wifi" { print $1 "|" $3; exit }'
+}
+
+# Docker's veth interfaces are type ethernet but always "unmanaged", so they
+# cannot satisfy this.
+ethernet_connected() {
+    nmcli -t -f TYPE,STATE device status 2>/dev/null \
+        | grep -q '^ethernet:connected'
+}
+
+# Only "active" means a portal is genuinely serving. On a stock node the
+# wifi-connect restart loop churns ActiveState through activating, auto-restart
+# and failed every ~90s without the portal ever starting.
+portal_serving() {
+    [ "$(systemctl show wifi-connect -p ActiveState --value 2>/dev/null)" = "active" ]
+}
+
+# Clients on the portal's AP. Only consulted while the portal serves: in client
+# mode this same command reports the AP the node is joined to.
+portal_clients() {
+    iw dev "$1" station dump 2>/dev/null | grep -c '^Station'
+}
+
+# The portal's own AP profile makes the device report "connected". Being joined
+# to our own setup network is not being online.
+active_conn() {
+    nmcli -t -f NAME,DEVICE,TYPE connection show --active 2>/dev/null \
+        | awk -F: -v d="$1" '$2 == d && $3 == "802-11-wireless" { print $1; exit }'
+}
+
+profile_names() {
+    nmcli -t -f NAME,TYPE connection show 2>/dev/null \
+        | awk -F: '$2 == "802-11-wireless" { print $1 }' \
+        | grep -v "^${PORTAL_SSID}$"
+}
+
+# The SSID a profile actually joins, which is not always its name.
+saved_ssids() {
+    profile_names | while read -r n; do
+        nmcli -g 802-11-wireless.ssid connection show "${n}" 2>/dev/null
+    done | grep -v '^$' | sort -u
+}
+
+# A hidden network never appears in a scan, so visibility cannot gate it.
+any_hidden() {
+    profile_names | while read -r n; do
+        [ "$(nmcli -g 802-11-wireless.hidden connection show "${n}" 2>/dev/null)" = "yes" ] \
+            && echo yes
+    done | grep -q yes
+}
+
+scan_ssids() {
+    timeout "${SCAN_TIMEOUT}" nmcli -t -f SSID device wifi list ifname "$1" --rescan yes 2>/dev/null \
+        | sed 's/\\:/:/g' | grep -v '^$' | sort -u
+}
+
+# Every saved network we can currently see. This is the signal the whole script
+# turns on, and it is used as a yes/no - nmcli picks which profile to activate.
+# Reported in full rather than as head -1: on a dual-band router both SSIDs are
+# saved and both visible, and naming one of them implies a choice we did not
+# make. An earlier version logged home=VM25B6A8 while the node rejoined
+# VM55B6A0.
+visible_home() {
+    comm -12 <(saved_ssids) <(scan_ssids "$1") 2>/dev/null | paste -sd, -
+}
+
+signal_now() {
+    awk -v d="$1:" '$1 == d { gsub(/\./,"",$4); print $4; found=1 }
+                    END { if (!found) print "0" }' /proc/net/wireless 2>/dev/null
+}
+
+clear_outage() { rm -f "${DOWN_SINCE}" "${NUDGES}" "${LAST_RC}" "${SEEN}" "${REPORTED}"; }
+
+# ------------------------------------------------------------------ start --
+
+if [ ! -f "${STARTED}" ]; then
+    touch "${STARTED}"
+    emit "EVENT=start saved=$(saved_ssids | paste -sd, - || echo none)" \
+         "hidden=$(any_hidden && echo yes || echo no)"
+fi
+
+# Ethernet is a complete alternative: the node is reachable and WiFi can be
+# fixed from the GUI. Nothing here is worth doing or recording.
+if ethernet_connected; then
+    clear_outage
+    exit 0
+fi
+
+row=$(wifi_row)
+dev=${row%%|*}
+state=${row#*|}
+[ -n "${dev}" ] || exit 0
+
+# An unprovisioned node has nowhere to go back to. The portal is exactly what
+# it needs, and nudging would only fight it.
+[ -n "$(profile_names | head -1)" ] || exit 0
+
+# ---------------------------------------------------------- inside node-setup
+
+# The portal can scan, so it can tell us whether it should still exist. If a
+# network we hold credentials for is in range, there is nothing here for a user
+# to choose that the node cannot do for itself.
+if portal_serving; then
+    if [ "$(portal_clients "${dev}")" -gt 0 ]; then
+        exit 0                       # someone is mid-setup; leave them be
+    fi
+    home=$(visible_home "${dev}")
+    if [ -z "${home}" ] && ! any_hidden; then
+        exit 0                       # genuinely nowhere to go; portal is right
+    fi
+    emit "EVENT=portal_released home=${home:-hidden} clients=0"
+    systemctl stop wifi-connect >/dev/null 2>&1
+    # wifi-connect's ExecStopPost restarts retina-gui. Let the interface finish
+    # leaving AP mode before it is read back.
+    sleep 3
+    row=$(wifi_row)
+    dev=${row%%|*}
+    state=${row#*|}
+    [ -n "${dev}" ] || exit 0
+fi
+
+# ------------------------------------------------------------- assessment --
+
+if [ "${state}" = "connected" ] && [ "$(active_conn "${dev}")" = "${PORTAL_SSID}" ]; then
+    state="portal-ap"
+fi
+
+case "${state}" in
+    connected)
+        if [ -f "${DOWN_SINCE}" ]; then
+            began=$(read_int "${DOWN_SINCE}")
+            seen=$(read_int "${SEEN}")
+            emit "EVENT=recovered outage=$(( $(now) - began ))s" \
+                 "$( [ "${seen}" -gt 0 ] && echo "rejoin_lag=$(( $(now) - seen ))s" || echo "rejoin_lag=unknown" )" \
+                 "nudges=$(read_int "${NUDGES}") last_nudge_rc=$(read_int "${LAST_RC}")" \
+                 "ssid=$(/usr/sbin/iwgetid "${dev}" -r 2>/dev/null || echo unknown)" \
+                 "signal=$(signal_now "${dev}")dBm" \
+                 "ip=$(ip -4 -o addr show "${dev}" 2>/dev/null | awk '{print $4; exit}')"
+        fi
+        clear_outage
+        exit 0
+        ;;
+    connecting*|prepare*|config*|ip-config*|need-auth*|deactivating*)
+        # An activation is already in flight. Re-issuing restarts it from
+        # scratch and can loop forever without completing a single attempt.
+        exit 0
+        ;;
+esac
+
+# ------------------------------------------------------------------ down ---
+
+home=$(visible_home "${dev}")
+
+if [ ! -f "${DOWN_SINCE}" ]; then
+    now > "${DOWN_SINCE}"
+    echo 0 > "${NUDGES}"
+    now > "${REPORTED}"
+    emit "EVENT=down device=${dev} state=${state} visible=${home:-none}"
+fi
+
+# Record the moment the network came back, separately from the moment we
+# rejoined it. The gap between the two is the only honest measure of how well
+# this works.
+if [ -n "${home}" ] && [ ! -f "${SEEN}" ]; then
+    now > "${SEEN}"
+    emit "EVENT=home_seen ssid=${home} after=$(( $(now) - $(read_int "${DOWN_SINCE}") ))s"
+fi
+
+# Attempt only when there is something to attempt: a visible network, or a
+# hidden one that no scan could ever show. Otherwise wait and keep watching -
+# a connect that cannot succeed would block for CONNECT_WAIT every cycle for
+# nothing.
+if [ -n "${home}" ] || any_hidden; then
+    nmcli --wait "${CONNECT_WAIT}" device connect "${dev}" >/dev/null 2>&1
+    rc=$?
+    echo "${rc}" > "${LAST_RC}"
+    echo "$(( $(read_int "${NUDGES}") + 1 ))" > "${NUDGES}"
+else
+    rc=-1
+fi
+
+if [ $(( $(now) - $(read_int "${REPORTED}") )) -ge "${STILL_DOWN_EVERY}" ]; then
+    now > "${REPORTED}"
+    emit "EVENT=still_down outage=$(( $(now) - $(read_int "${DOWN_SINCE}") ))s" \
+         "visible=${home:-none} nudges=$(read_int "${NUDGES}") last_nudge_rc=${rc}"
+fi
+
+exit 0
