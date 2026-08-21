@@ -1,0 +1,256 @@
+#!/usr/bin/python3
+
+"""Publish owl.local as a *shared* mDNS address record.
+
+owl.local is the fleet's entry point: whichever node answers it serves the
+landing page, and since every node serves the same page it does not matter
+which one that is. What does matter is that the name never goes away while any
+node is up.
+
+Avahi's own conflict resolution cannot give us that. A host name is a unique
+record, so the first node to claim owl.local keeps it, every other node backs
+off to owl-2.local, and when the holder is unplugged the name simply dies —
+Avahi has no logic to reclaim a name it lost. The obvious workaround, an
+election between the nodes, means a watcher loop, claim/backoff state, and a
+split-brain case when multicast drops briefly and two nodes each believe the
+name is vacant.
+
+None of that is necessary, because mDNS already allows several hosts to answer
+one name: a *shared* record is never probed and never conflicts. All nodes
+answer owl.local at once, the client picks one, and a node dying is a non-event
+because there was never a single holder to fail over from.
+
+## Why this talks DBus instead of running avahi-publish
+
+avahi-publish -a cannot produce a shared record, and neither can the
+AddAddress call underneath it. avahi_server_add_address() forces the flags,
+discarding what the caller asked for (avahi-core/entry.c in 0.8):
+
+    entry = server_add_internal(s, g, interface, protocol,
+        (flags & ~AVAHI_PUBLISH_NO_REVERSE)
+        | AVAHI_PUBLISH_UNIQUE | AVAHI_PUBLISH_ALLOW_MULTIPLE, r);
+
+UNIQUE is always set, so the record is always probed and always collides. That
+is exactly the bug the old avahi-alias-retina.service had: every node published
+retina.local this way and each collided with the others. avahi-publish does not
+even fail cleanly: it tries to pick an alternative name, gets NULL because
+there is no alternative for an address record, and aborts on an assertion.
+Observed on a live node, 1438 restarts deep:
+
+    Name collision, picking new name '(null)'.
+    avahi-publish: entrygroup.c:738: avahi_entry_group_add_address:
+        Assertion `name' failed.
+    Main process exited, code=killed, status=6/ABRT
+
+Restart=always turned that into a permanent ten-second flap.
+
+ALLOW_MULTIPLE is not the escape hatch it sounds like. AddAddress rejects it
+outright as an invalid flag, and forces it on internally regardless — and it
+would not have helped either way, because it means "allow multiple *local*
+records of this type" (for a multi-homed host), not "let other hosts answer
+this name too".
+
+EntryGroup.AddRecord is the one path that works: avahi_server_add() passes
+flags through untouched, so omitting AVAHI_PUBLISH_UNIQUE gives a genuinely
+shared record. It also takes an explicit TTL, which AddAddress hardcodes.
+
+## Why it holds its addresses under review
+
+The record is the node's own IP, so it goes stale when that changes — a DHCP
+renewal onto a new address, or a switch between Ethernet and WiFi. The old
+alias captured the address once at service start and never looked again, which
+is why a node could end up advertising an address it no longer had.
+
+This re-checks on a short interval and republishes on change, which covers the
+DHCP and interface cases together and needs no NetworkManager dispatcher hook
+to do it.
+"""
+
+import json
+import os
+import signal
+import socket
+import subprocess
+import sys
+import time
+
+import dbus
+
+ALIAS = "owl.local"
+
+# Deliberately shorter than Avahi's 120s default for host addresses. A node
+# powered off at the wall sends no goodbye packet, so every client that cached
+# its address for owl.local keeps trying it until the TTL runs out. That window
+# is the one real cost of publishing this as a shared record, and it is the
+# only knob on it. A clean shutdown withdraws the record immediately and is
+# unaffected either way.
+TTL_SECONDS = 30
+
+# How often to re-read the node's addresses. One `ip` invocation, so the cost
+# is nil; short enough that a DHCP change is corrected before anyone notices.
+POLL_SECONDS = 15
+
+# From avahi-common/defs.h.
+PROTO_INET = 0
+DNS_CLASS_IN = 1
+DNS_TYPE_A = 1
+# The whole point: no AVAHI_PUBLISH_UNIQUE (1). Without it the record is
+# shared — not probed, and free to coexist with the same name on other hosts.
+PUBLISH_FLAGS_SHARED = 0
+
+
+def is_physical(name):
+    """Is this a real network interface, rather than a virtual one?
+
+    Docker is the reason this matters. A node running the radar stack has half
+    a dozen bridges — docker0 and a br-<hash> per compose network — each with a
+    172.x address that means nothing outside the node. Publishing those under
+    owl.local hands clients addresses they can never reach, and it is not
+    hypothetical: before this existed, `avahi-resolve -n owl.local` on a live
+    node answered 172.18.0.1.
+
+    The test is whether the kernel gives the interface a backing device. Real
+    NICs (end0, wlan0) have one; bridges, veths and tunnels do not. That beats
+    matching on names, because the br-<hash> ones are generated per network and
+    there is no pattern worth trusting.
+    """
+    return os.path.exists(f"/sys/class/net/{name}/device")
+
+
+def current_addresses():
+    """Every global IPv4 address on a physical interface, as {ifindex: [...]}.
+
+    Published per interface rather than on AVAHI_IF_UNSPEC so a multi-homed
+    node does not announce its WiFi address to the Ethernet segment, where
+    nothing can reach it.
+
+    IPv4 only for now. retina-gui listens dual-stack, so adding AAAA later is
+    possible, but IPv6 on these LANs is mostly link-local and needs scope
+    handling that buys nothing while every client reaches the node over v4.
+    """
+    try:
+        output = subprocess.run(
+            ["ip", "-j", "-4", "addr", "show", "scope", "global"],
+            capture_output=True, text=True, timeout=10, check=True).stdout
+        interfaces = json.loads(output)
+    except (subprocess.SubprocessError, ValueError) as e:
+        print(f"owl-mdns-alias: could not read addresses: {e}", file=sys.stderr)
+        return {}
+
+    found = {}
+    for interface in interfaces:
+        index = interface.get("ifindex")
+        name = interface.get("ifname", "")
+        if not index or not is_physical(name):
+            continue
+        addresses = [a["local"] for a in interface.get("addr_info", [])
+                     if a.get("family") == "inet" and a.get("local")]
+        if addresses:
+            found[index] = sorted(addresses)
+    return found
+
+
+class Publisher:
+    """Holds one Avahi entry group carrying the alias, and keeps it current."""
+
+    def __init__(self):
+        self.bus = dbus.SystemBus()
+        server = dbus.Interface(
+            self.bus.get_object("org.freedesktop.Avahi", "/"),
+            "org.freedesktop.Avahi.Server")
+        self.group = dbus.Interface(
+            self.bus.get_object("org.freedesktop.Avahi", server.EntryGroupNew()),
+            "org.freedesktop.Avahi.EntryGroup")
+        self.published = {}
+
+    def publish(self, addresses):
+        # Reset rather than update in place: the set of interfaces can change,
+        # not just the addresses on them, and a reset withdraws whatever was
+        # there before with goodbye packets rather than leaving an orphan.
+        self.group.Reset()
+
+        for index, on_interface in addresses.items():
+            for address in on_interface:
+                self.group.AddRecord(
+                    dbus.Int32(index),
+                    dbus.Int32(PROTO_INET),
+                    dbus.UInt32(PUBLISH_FLAGS_SHARED),
+                    ALIAS,
+                    dbus.UInt16(DNS_CLASS_IN),
+                    dbus.UInt16(DNS_TYPE_A),
+                    dbus.UInt32(TTL_SECONDS),
+                    dbus.ByteArray(socket.inet_aton(address)))
+
+        self.group.Commit()
+        self.published = addresses
+        flat = ", ".join(a for on_if in addresses.values() for a in on_if)
+        print(f"owl-mdns-alias: {ALIAS} -> {flat or '(nothing)'}", flush=True)
+
+    def check(self):
+        """Raise if the entry group is no longer ours to hold.
+
+        The poll below only touches DBus when an address actually changes, so
+        on a node with a stable IP nothing would otherwise ever notice that
+        avahi-daemon had gone away and taken the entry group with it. The
+        service would sit there looking healthy while publishing nothing.
+
+        That is not a hypothetical: avahi-daemon is socket-activated, so it can
+        be stopped and brought back by something else entirely, without this
+        unit being restarted by systemd.
+        """
+        state = self.group.GetState()
+        # 3 = AVAHI_ENTRY_GROUP_COLLISION, 4 = FAILURE. Neither should happen
+        # for a shared record, but if one does, a clean rebuild beats staying
+        # up in a state that publishes nothing.
+        if int(state) in (3, 4):
+            raise dbus.DBusException(f"entry group in state {state}")
+
+    def withdraw(self):
+        """Take the alias off the network now, rather than at TTL expiry."""
+        try:
+            self.group.Reset()
+        except dbus.DBusException:
+            pass
+
+
+def main():
+    try:
+        publisher = Publisher()
+    except dbus.DBusException as e:
+        # avahi-daemon not up yet, or gone. systemd restarts us; there is
+        # nothing useful to do from in here.
+        print(f"owl-mdns-alias: cannot reach avahi: {e}", file=sys.stderr)
+        return 1
+
+    running = True
+
+    def stop(_signum, _frame):
+        nonlocal running
+        running = False
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+    try:
+        publisher.publish(current_addresses())
+        while running:
+            time.sleep(POLL_SECONDS)
+            if not running:
+                break
+            publisher.check()
+            addresses = current_addresses()
+            if addresses != publisher.published:
+                publisher.publish(addresses)
+    except dbus.DBusException as e:
+        # Most likely avahi-daemon restarted under us and took the entry group
+        # with it. Exiting lets systemd rebuild the whole thing cleanly.
+        print(f"owl-mdns-alias: lost avahi: {e}", file=sys.stderr)
+        return 1
+    finally:
+        publisher.withdraw()
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

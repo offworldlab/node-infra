@@ -1,0 +1,109 @@
+---
+# Playbook: mdns_identity
+# Version: 0.1.0
+#
+# Purpose: Make every node individually addressable on a shared LAN, and make
+#          owl.local a fleet entry point that any live node can answer.
+#
+# The problem: all nodes ship with /etc/hostname set to "owl", so Avahi decides
+# by boot race who gets owl.local and who gets owl-2.local, and the answer
+# changes on every reboot. Nothing has a stable address, and when the node
+# holding owl.local goes away the name dies with it — Avahi never reclaims a
+# name it lost.
+#
+# Two names, published two different ways:
+#
+#   ret4c844c20.local  unique, probed, Avahi's own host-name. One node only.
+#                      Derived from the Mender node_id, so it is the same for
+#                      the life of the board. Nodes no longer contend for a
+#                      name, so owl-2.local stops occurring at all.
+#
+#   owl.local          shared, unprobed. Published by every node, always. All
+#                      of them answer, the client picks one, and a node dying
+#                      is a non-event because there was never a single holder.
+#
+# Nothing here depends on how many nodes exist: every node does exactly the
+# same thing on every boot. The only place the node count is consulted is
+# retina-gui, deciding whether to serve the landing page or redirect to the one
+# node it can see.
+#
+# Discovery is DNS-SD (_owl-node._tcp), which is multi-instance by design and
+# so has no uniqueness problem to work around.
+#
+# Replaces avahi-alias-retina.service, removed from the radar_packages role.
+# That published retina.local via avahi-publish -a, which cannot make a shared
+# record — see the long comment in owl-mdns-alias for why, and why this talks
+# to Avahi over DBus instead.
+
+- name: Install owl-mdns-identity
+  copy:
+    src: owl-mdns-identity
+    dest: /usr/local/sbin/owl-mdns-identity
+    mode: '0755'
+
+- name: Install owl-mdns-alias
+  copy:
+    src: owl-mdns-alias
+    dest: /usr/local/sbin/owl-mdns-alias
+    mode: '0755'
+
+- name: Create owl-mdns-identity systemd service
+  copy:
+    dest: /etc/systemd/system/owl-mdns-identity.service
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Set this node's mDNS host name and advertise it for discovery
+      # The host name has to be in avahi-daemon.conf before the daemon reads it,
+      # and the daemon only reads it at startup.
+      Before=avahi-daemon.service
+      # The node_id is persisted on /data, which is its own partition.
+      RequiresMountsFor=/data
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/local/sbin/owl-mdns-identity
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Enable owl-mdns-identity for boot
+  file:
+    src: /etc/systemd/system/owl-mdns-identity.service
+    dest: /etc/systemd/system/multi-user.target.wants/owl-mdns-identity.service
+    state: link
+
+- name: Create owl-mdns-alias systemd service
+  copy:
+    dest: /etc/systemd/system/owl-mdns-alias.service
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Publish owl.local as a shared mDNS alias for this node
+      Wants=avahi-daemon.service
+      After=avahi-daemon.service
+
+      [Service]
+      Type=simple
+      ExecStart=/usr/local/sbin/owl-mdns-alias
+      # Deliberately not bound to avahi-daemon's lifecycle. PartOf= was tried
+      # and is wrong: it stops this unit when avahi stops but cannot start it
+      # again, and avahi-daemon is socket-activated, so it comes back on its
+      # own without systemd restarting anything that depends on it. A node was
+      # left advertising its own name but not owl.local that way.
+      #
+      # Restart=always plus the script's own bus check covers every case
+      # instead. While avahi is down the script exits and is retried every 5s;
+      # once it is back the alias republishes on the next attempt.
+      Restart=always
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Enable owl-mdns-alias for boot
+  file:
+    src: /etc/systemd/system/owl-mdns-alias.service
+    dest: /etc/systemd/system/multi-user.target.wants/owl-mdns-alias.service
+    state: link

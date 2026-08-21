@@ -116,12 +116,23 @@
     state: link
 
 # 2b. Install Avahi for mDNS .local hostname resolution
+#
+# The names themselves are set up by the mdns_identity role, which runs later:
+# ret<node_id>.local per node, plus owl.local shared across all of them. This
+# task only puts the daemon and its dependencies in place.
+#
+# retina.local used to be published here by an avahi-alias-retina.service. It
+# has been retired — it could never work on a LAN with more than one node
+# (avahi-publish -a cannot make a shared record, so every node collided with
+# every other and flapped on a ten-second restart loop), and owl.local now
+# covers what it was for.
 - name: Install Avahi mDNS daemon
   apt:
     name:
       - avahi-daemon    # mDNS service for .local hostname advertisement
-      - avahi-utils     # Provides avahi-publish for mDNS alias publishing
+      - avahi-utils     # avahi-browse, used by retina-gui to discover peers
       - libnss-mdns     # Name service switch module for mDNS resolution
+      - python3-dbus    # owl-mdns-alias publishes the shared alias over DBus
     state: present
     update_cache: yes
 
@@ -129,31 +140,6 @@
   file:
     src: /lib/systemd/system/avahi-daemon.service
     dest: /etc/systemd/system/multi-user.target.wants/avahi-daemon.service
-    state: link
-
-# 2b. Install retina.local mDNS alias (backwards compatibility for existing nodes)
-- name: Install retina.local avahi alias service
-  copy:
-    dest: /etc/systemd/system/avahi-alias-retina.service
-    content: |
-      [Unit]
-      Description=Publish retina.local as mDNS alias for this device
-      Requires=avahi-daemon.service
-      After=avahi-daemon.service network-online.target
-
-      [Service]
-      Type=simple
-      ExecStart=/bin/bash -c "/usr/bin/avahi-publish -a -R retina.local $(ip route get 1 | awk '{print $7;exit}')"
-      Restart=always
-      RestartSec=10
-
-      [Install]
-      WantedBy=multi-user.target
-
-- name: Enable retina.local alias service on boot
-  file:
-    src: /etc/systemd/system/avahi-alias-retina.service
-    dest: /etc/systemd/system/multi-user.target.wants/avahi-alias-retina.service
     state: link
 
 # 3. Install SDRplay API
