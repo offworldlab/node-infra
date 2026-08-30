@@ -254,8 +254,9 @@
 
 - name: Install Cloudflared
   apt:
-    name: cloudflared
+    name: "cloudflared={{ cloudflared_version }}"
     state: present
+    allow_downgrade: yes
     update_cache: yes
 
 # 5c. Install SDRconnect for standalone SDR analysis
@@ -479,7 +480,7 @@
       WantedBy=wifi-connect.service
 
 # 8. Hold critical packages to prevent breaking auto-upgrades
-- name: Hold Docker packages
+- name: Hold packages that must not move under a running system
   dpkg_selections:
     name: "{{ item }}"
     selection: hold
@@ -489,6 +490,9 @@
     - docker-compose-plugin
     - docker-buildx-plugin
     - containerd.io
+    # Held for the same reason: an unattended upgrade swapping the connector
+    # underneath a running tunnel is not something to discover in the field.
+    - cloudflared
 
 # 9. RSPduo watchdog: cron-based health check that auto-restarts the stack on detection failure
 - name: Create blah2 script directory

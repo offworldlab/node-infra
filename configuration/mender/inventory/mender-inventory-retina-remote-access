@@ -1,0 +1,22 @@
+#!/bin/sh
+
+# Reports whether this device's owner has turned remote access on.
+#
+# node-infra/mender-auto-accept reads this to decide whether a Cloudflare
+# tunnel should exist for the node, the same way it reads wizard_pending. It is
+# the whole of the node-to-server direction for that feature: the node states
+# what its owner wants and never asks for anything.
+#
+# The marker is written and removed by retina-gui when the owner uses the
+# toggle under Configuration > Remote access. Only its presence matters.
+#
+# Deliberately a marker rather than the remote-access state file itself. That
+# file is 0600 root and holds the owner's password, and a POSIX shell has no
+# business parsing JSON to answer a yes or no question.
+
+if [ -f /data/retina-gui/remote-access-enabled ]; then
+    echo remote_access=true
+else
+    echo remote_access=false
+fi
+exit 0
