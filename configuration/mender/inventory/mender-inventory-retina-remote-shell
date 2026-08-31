@@ -1,0 +1,21 @@
+#!/bin/sh
+
+# Reports whether this device's owner permits Offworld to open a shell on it.
+#
+# Separate from remote_access on purpose: the two agreements are independent,
+# and reporting them together would invite treating one as a proxy for the
+# other. This one has no effect on tunnel provisioning; it exists so the fleet
+# can be seen at a glance and so a node's reported state can be compared with
+# what is actually enforced in mender-connect.conf.
+#
+# Recorded by its exception, because the agreement defaults to allowed. A node
+# that has never been touched, or one whose /data could not be written, reports
+# true, which is what it has always done. Only an explicit decline writes the
+# marker.
+
+if [ -f /data/retina-gui/remote-shell-disabled ]; then
+    echo remote_shell=false
+else
+    echo remote_shell=true
+fi
+exit 0

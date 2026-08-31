@@ -15,11 +15,17 @@
 #   2. mender-inventory-retina-remote-access (see the mender role) reports that
 #      as the `remote_access` inventory attribute, the same way wizard_pending
 #      is already reported.
-#   3. node-infra reads the attribute, creates the tunnel in Cloudflare, and
-#      uploads the connector token to the staging path below over Mender's
-#      file transfer.
-#   4. cloudflared-token.path notices, and cloudflared-token.service installs
-#      it to /data and (re)starts the connector.
+#   3. node-infra reads the attribute, creates the tunnel and its Cloudflare
+#      Access application, and uploads two files to the staging path below over
+#      Mender's file transfer: the connector token, and access.json naming the
+#      team domain and this node's Access application.
+#   4. cloudflared-token.path notices either of them, and cloudflared-token.service
+#      installs them to /data and (re)starts the connector.
+#
+# retina-gui verifies Access assertions against access.json, so a node without
+# it refuses every visitor. That is why it is installed first when both arrive
+# together, and why it lands root-owned on /data rather than being read out of
+# the staging directory the `node` user can write to.
 #
 # ## Why a staging path rather than writing /data directly
 #
@@ -106,30 +112,51 @@
     group: root
     content: |
       #!/bin/bash
-      # Move a token uploaded over Mender into place, then start or stop the
-      # connector to match. See the cloudflared_persistence role for why this
-      # exists rather than node-infra writing /data itself.
+      # Move what node-infra staged over Mender into place, then start or stop
+      # the connector to match. See the cloudflared_persistence role for why
+      # this exists rather than node-infra writing /data itself.
       set -u
 
-      STAGED="/home/{{ default_user_name }}/.retina/tunnel-token"
-      LIVE=/data/cloudflared/tunnel-token
+      STAGE="/home/{{ default_user_name }}/.retina"
+      LIVE=/data/cloudflared
 
-      [ -e "$STAGED" ] || exit 0
+      # The Access config first, always. It names the team and this node's
+      # Access application, and retina-gui refuses every visitor until it has
+      # them. Installing the token first would bring the hostname up during the
+      # gap, serving a node that can identify nobody: it fails closed rather
+      # than open, but it is an outage nobody needs to have.
+      #
+      # It lands on /data root-owned rather than being read from the staging
+      # directory, because the `node` user can write there. A local user who
+      # could edit it would be naming their own team and audience, and could
+      # then mint assertions this node would believe.
+      if [ -e "$STAGE/access.json" ]; then
+          if [ -s "$STAGE/access.json" ]; then
+              install -m 0600 -o root -g root "$STAGE/access.json" "$LIVE/access.json"
+              echo "Installed Cloudflare Access config"
+          else
+              rm -f "$LIVE/access.json"
+              echo "Cleared Cloudflare Access config"
+          fi
+          rm -f "$STAGE/access.json"
+      fi
 
-      if [ -s "$STAGED" ]; then
-          install -m 0600 -o root -g root "$STAGED" "$LIVE"
-          # Deleted rather than left readable: whoever holds this token can
-          # impersonate the tunnel, and the node's owner has shell access.
-          rm -f "$STAGED"
-          echo "Installed a new tunnel token; restarting cloudflared"
-          systemctl restart cloudflared.service
-      else
-          # Empty file means remote access was turned off. A *missing* file
-          # cannot mean that, because that is also what a consumed token looks
-          # like.
-          rm -f "$STAGED" "$LIVE"
-          echo "Tunnel token cleared; stopping cloudflared"
-          systemctl stop cloudflared.service
+      if [ -e "$STAGE/tunnel-token" ]; then
+          if [ -s "$STAGE/tunnel-token" ]; then
+              install -m 0600 -o root -g root "$STAGE/tunnel-token" "$LIVE/tunnel-token"
+              # Deleted rather than left readable: whoever holds this token can
+              # impersonate the tunnel, and the node's owner has shell access.
+              rm -f "$STAGE/tunnel-token"
+              echo "Installed a new tunnel token; restarting cloudflared"
+              systemctl restart cloudflared.service
+          else
+              # Empty file means support access was withdrawn. A *missing* file
+              # cannot mean that, because that is also what a token this unit
+              # has already consumed looks like.
+              rm -f "$STAGE/tunnel-token" "$LIVE/tunnel-token"
+              echo "Tunnel token cleared; stopping cloudflared"
+              systemctl stop cloudflared.service
+          fi
       fi
 
 - name: Create cloudflared-token service
@@ -158,10 +185,16 @@
       Description=Watch for a tunnel token staged by node-infra
 
       [Path]
-      # PathExists rather than PathChanged: this also catches a token that
+      # PathExists rather than PathChanged: this also catches a file that
       # arrived while the node was off, and it is self-limiting because the
-      # service deletes the file it acts on.
+      # service deletes whatever it acts on.
+      #
+      # Both are watched because either can arrive alone. The Access config is
+      # rewritten whenever an application is recreated, which does not change
+      # the connector token, so watching only the token would leave the node
+      # verifying against a stale audience until something else happened to it.
       PathExists=/home/{{ default_user_name }}/.retina/tunnel-token
+      PathExists=/home/{{ default_user_name }}/.retina/access.json
 
       [Install]
       WantedBy=multi-user.target
