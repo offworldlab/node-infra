@@ -1,0 +1,181 @@
+#!/bin/bash
+
+# ----------------------------------------------------------------------------
+# Give this node an mDNS name of its own, and advertise it for discovery.
+# ----------------------------------------------------------------------------
+#
+# Every node ships with /etc/hostname set to "owl", so on a LAN with more than
+# one of them Avahi's conflict resolution decides who is owl.local and who
+# becomes owl-2.local. The winner is whoever booted first, and it reshuffles on
+# every reboot, so no node has an address you can write down.
+#
+# This sets Avahi's advertised host name to the node's Mender node_id instead
+# (ret4c844c20.local), which is derived from the Pi's serial and therefore the
+# same on every boot for the life of the board. Nodes stop contending for a
+# name, so owl-2.local never occurs again.
+#
+# /etc/hostname is deliberately left alone. It stays "owl" for Docker, the
+# shell prompt, log tags and Mender, none of which want a per-device name; only
+# what Avahi puts on the wire changes.
+#
+# Runs on every boot rather than once, so it is self-healing after a manual
+# edit and picks up a friendly name set through the GUI. It is ordered before
+# avahi-daemon so the name is in place when the daemon first probes.
+
+set -o nounset
+set -o errexit
+set -o pipefail
+
+AVAHI_CONF=/etc/avahi/avahi-daemon.conf
+SERVICE_FILE=/etc/avahi/services/owl-node.service
+NODE_ID_FILE=/data/mender/node_id
+NODE_NAME_FILE=/data/retina-gui/node-name
+
+log() { echo "owl-mdns-identity: $*"; }
+
+# ---------------------------------------------------------------- the node_id
+#
+# Must agree exactly with configuration/mender/identity/mender-device-identity.
+# Two formats are live in the fleet and both are valid: ret + 16 hex (current,
+# the whole serial) and ret + 8 hex (legacy, the last 8 only). The persisted
+# file is checked first and wins, which is what keeps an enrolled legacy node on
+# the identity it already has — the same reason that script reads it first.
+derive_node_id() {
+    if [ -f "${NODE_ID_FILE}" ]; then
+        local persisted
+        persisted=$(tr -d '[:space:]' < "${NODE_ID_FILE}")
+        if [ -n "${persisted}" ]; then
+            echo "${persisted}"
+            return 0
+        fi
+    fi
+
+    if ! grep -q "Raspberry Pi\|BCM" /proc/cpuinfo 2>/dev/null; then
+        return 1
+    fi
+
+    local serial
+    serial=$(grep "^Serial" /proc/cpuinfo | cut -d: -f2 | tr -d ' ' | tr '[:upper:]' '[:lower:]')
+    if [ -z "${serial}" ] || [ "${serial}" = "0000000000000000" ]; then
+        return 1
+    fi
+
+    if printf '%s' "${serial}" | grep -qE '^[0-9a-f]{16}$'; then
+        echo "ret${serial}"
+    elif printf '%s' "${serial: -8}" | grep -qE '^[0-9a-f]{8}$'; then
+        echo "ret${serial: -8}"
+    else
+        return 1
+    fi
+}
+
+# A name we cannot derive is not a name we should invent. Falling back to the
+# stock "owl" leaves the node exactly as it behaves today — findable, with
+# Avahi's suffixing to sort out collisions — whereas a made-up identity could
+# collide with a real one, and would follow the board around forever.
+if NODE_ID=$(derive_node_id); then
+    log "mDNS host name: ${NODE_ID}"
+else
+    NODE_ID=$(cat /etc/hostname)
+    log "warning: no node_id available; leaving mDNS host name as ${NODE_ID}"
+fi
+
+# ------------------------------------------------------------ the host name
+#
+# Avahi has no drop-in directory, so the shipped config file has to be edited
+# in place. Idempotent: matches the setting whether it is currently commented
+# out (as Debian ships it), already set to something else, or already correct.
+if grep -qE '^[#[:space:]]*host-name=' "${AVAHI_CONF}"; then
+    sed -i -E "s|^[#[:space:]]*host-name=.*|host-name=${NODE_ID}|" "${AVAHI_CONF}"
+else
+    sed -i "/^\[server\]/a host-name=${NODE_ID}" "${AVAHI_CONF}"
+fi
+
+# ------------------------------------------------------- the interfaces to use
+#
+# A node running the radar stack has half a dozen Docker bridges — docker0 plus
+# a br-<hash> per compose network — each with a 172.x address that is
+# meaningless outside the node. Avahi advertises on every interface by default,
+# so those addresses go out under the node's name and clients get handed
+# routes to nowhere. Observed on a live node before this was added:
+#
+#     $ avahi-resolve -n owl.local
+#     owl.local    172.18.0.1
+#
+# Restricting Avahi to interfaces with a backing device in /sys leaves the real
+# NICs (end0, wlan0) and drops every bridge and veth. Names are not used for
+# the test: the br-<hash> ones are generated per network, so there is no
+# pattern worth trusting.
+PHYSICAL=""
+for interface in /sys/class/net/*; do
+    name=$(basename "${interface}")
+    if [ -e "${interface}/device" ]; then
+        PHYSICAL="${PHYSICAL}${PHYSICAL:+,}${name}"
+    fi
+done
+
+# An empty list would tell Avahi to publish on nothing at all, which is a worse
+# failure than publishing too much — so if the probe finds nothing, leave the
+# setting alone and let Avahi use every interface as before.
+if [ -n "${PHYSICAL}" ]; then
+    log "publishing on: ${PHYSICAL}"
+    if grep -qE '^[#[:space:]]*allow-interfaces=' "${AVAHI_CONF}"; then
+        sed -i -E "s|^[#[:space:]]*allow-interfaces=.*|allow-interfaces=${PHYSICAL}|" "${AVAHI_CONF}"
+    else
+        sed -i "/^\[server\]/a allow-interfaces=${PHYSICAL}" "${AVAHI_CONF}"
+    fi
+else
+    log "warning: no physical interfaces found; leaving allow-interfaces unset"
+fi
+
+# ------------------------------------------------------------ the friendly name
+#
+# Optional, set through the GUI and stored on /data so it survives an OS
+# update. ret4c844c20 is stable but unreadable, and a landing page listing
+# several of them is not something anyone can navigate.
+FRIENDLY_NAME=""
+if [ -f "${NODE_NAME_FILE}" ]; then
+    FRIENDLY_NAME=$(head -c 64 "${NODE_NAME_FILE}" | tr -d '\n\r')
+fi
+
+# The value lands inside an XML attribute-free text node, so the five XML
+# entities have to go. The GUI validates on the way in as well; this is the
+# second line of defence, and covers a file edited by hand over SSH.
+xml_escape() {
+    printf '%s' "$1" \
+        | sed -e 's/&/\&amp;/g' \
+              -e 's/</\&lt;/g' \
+              -e 's/>/\&gt;/g' \
+              -e 's/"/\&quot;/g' \
+              -e "s/'/\&apos;/g"
+}
+
+# ------------------------------------------------------- the DNS-SD advertisement
+#
+# This is how peers find each other. A service type rather than a host name
+# because DNS-SD is multi-instance by design — every node advertising
+# _owl-node._tcp is normal, so there is nothing to collide over. The SRV record
+# it generates points at the host *name*, not an address, so it can never go
+# stale the way the old retina.local alias did.
+#
+# %h expands to Avahi's host name, so the instance tracks whatever was set
+# above without this file having to repeat it. avahi-daemon watches this
+# directory and reloads on its own; no restart is needed when only the friendly
+# name changes, which is what lets the GUI rename a node live.
+mkdir -p "$(dirname "${SERVICE_FILE}")"
+cat > "${SERVICE_FILE}" <<EOF
+<?xml version="1.0" standalone='no'?><!--*-nxml-*-->
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!-- Written by owl-mdns-identity on every boot. Edits here are overwritten. -->
+<service-group>
+  <name replace-wildcards="yes">%h</name>
+  <service>
+    <type>_owl-node._tcp</type>
+    <port>80</port>
+    <txt-record>node_id=$(xml_escape "${NODE_ID}")</txt-record>
+    <txt-record>name=$(xml_escape "${FRIENDLY_NAME}")</txt-record>
+  </service>
+</service-group>
+EOF
+
+log "advertised _owl-node._tcp as ${NODE_ID}${FRIENDLY_NAME:+ (${FRIENDLY_NAME})}"

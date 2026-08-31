@@ -9,7 +9,7 @@ Mender-enabled OS images for Raspberry Pi 5 radar nodes. The image comes pre-loa
 - **SDRconnect v1.0.5** for standalone SDR analysis
 - **Chrony** for NTP clock disciplining
 - **Cloudflared** for secure tunneling
-- **Avahi mDNS** for `<hostname>.local` discovery
+- **Avahi mDNS** for `ret<node_id>.local` per-node discovery, plus a shared `owl.local`
 - **WiFi Connect** captive portal for network setup
 - **Mender client** for OTA updates
 
@@ -50,6 +50,16 @@ During a retina-node install, retina-gui holds an `install.lock` in `/data/retin
 
 After deploying retina-node, visit `http://owl.local` to configure capture settings, location, ADS-B truth source, and tar1090. See [retina-node](https://github.com/offworldlabs/retina-node) for details.
 
+### Addressing nodes
+
+Each node has a permanent name of its own, `ret<node_id>.local`, derived from the Mender node_id and unchanged for the life of the board. It is shown under **Configuration > This node** and is the address to bookmark.
+
+`owl.local` is a shared entry point published by *every* node at once, so it reaches whichever one answers first. With a single node on the network it redirects to that node. With more than one it shows a list of every node found, each linking to its own `ret<node_id>.local`. A node dropping off the network does not take `owl.local` with it — the others were already answering it.
+
+Use `owl.local` to find a node, and `ret<node_id>.local` to work with one. In particular **do not use `owl.local` for SSH**: it can resolve to a different node between connections, which will trip `REMOTE HOST IDENTIFICATION HAS CHANGED`.
+
+Nodes can be given a friendly name under **Configuration > This node**. It is only a label for the node list, so renaming never breaks a bookmark or an SSH config. That section also shows the node's own `ret<node_id>.local` address.
+
 ### Cloudflare Tunnel (Optional)
 
 To enable Cloudflare tunnel forwarding, create a token file on the node:
@@ -67,10 +77,12 @@ The token persists across OTA updates.
 
 **End users:** Add your SSH key via the web GUI at `http://owl.local` after boot. Once added, connect with:
 ```bash
-ssh node@owl.local
+ssh node@ret<node_id>.local
 # or by IP
 ssh node@<ip-address>
 ```
+
+Always SSH to the node's own `ret<node_id>.local`, never to `owl.local` — that name is answered by every node on the network, so which host you land on can change between connections and SSH will refuse on the host key mismatch. **Configuration > This node** shows its address.
 
 Keys persist across reboots and OTA updates.
 
