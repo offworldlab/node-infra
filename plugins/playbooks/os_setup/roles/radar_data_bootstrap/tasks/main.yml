@@ -34,6 +34,13 @@
         "log-driver": "journald",
         "log-opts": {
           "tag": "{% raw %}{{.Name}}{% endraw %}"
+        },
+        "default-ulimits": {
+          "core": {
+            "Name": "core",
+            "Soft": 0,
+            "Hard": 0
+          }
         }
       }
     mode: '0644'
@@ -43,6 +50,16 @@
 # for image layers. Setting containerd-snapshotter: false uses classic overlay2
 # storage so ALL data goes to data-root and persists across Mender A/B updates.
 # See: https://docs.mender.io/artifact-creation/create-an-artifact
+
+# Note: default-ulimits disables core dumps for every container. dockerd runs
+# with LimitCORE=infinity and containers inherit it, kernel.core_pattern on this
+# image is the bare relative name "core", and a container's working directory is
+# in its writable layer, which is on /data. So a segfault writes an image of the
+# process's address space to the SD card: blah2 alone is 411 MB resident, it is
+# the service that crashes when the SDRplay API wedges, and it runs under
+# restart: always, so a crash loop dumps that repeatedly with nothing removing
+# what it wrote. Nothing here consumes core dumps -- crashes are diagnosed from
+# journald -- so the useful setting is zero.
 
 # 2. Create base directory structure
 - name: Create /data/retina-node directory structure
