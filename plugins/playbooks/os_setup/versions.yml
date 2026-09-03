@@ -5,6 +5,7 @@
 
 # Held packages (prevent apt auto-upgrade):
 # - docker-ce, docker-ce-cli, docker-compose-plugin, containerd.io
+# - cloudflared
 # - mender-client4, mender-auth, mender-update, mender-connect, mender-configure, mender-docker-compose
 
 # Critical Packages - Exact pins (hold enabled, test before upgrading)
@@ -40,6 +41,14 @@ sdrplay_url: "https://pub-5a7a9064d7ff40ad86ad765aa0e227b8.r2.dev/sdrplay-api/SD
 # SDRconnect for standalone SDR radio analysis
 sdrconnect_version: "1.0.5"
 sdrconnect_url: "https://pub-5a7a9064d7ff40ad86ad765aa0e227b8.r2.dev/sdrplay-api/sdrconnect-linux-arm64-files.tar"
+
+# Cloudflared, for the remote access tunnel.
+#
+# Pinned and held like Docker rather than tracking whatever Cloudflare shipped
+# on the day an image was built, so the connector version is a property of the
+# OS release instead of the build date. 2026.8.2 is what the fleet is running
+# and what the tunnel work was tested against.
+cloudflared_version: "2026.8.2"
 
 # Balena WiFi Connect for captive portal
 balena_wifi_version: "v4.11.84"

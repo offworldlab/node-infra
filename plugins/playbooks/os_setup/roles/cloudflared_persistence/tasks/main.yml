@@ -1,19 +1,49 @@
 ---
 # Playbook: cloudflared_persistence
-# Version: 0.1.0
+# Version: 0.2.0
 #
-# Purpose: Configure cloudflared tunnel with persistent token storage
+# Purpose: Run a Cloudflare tunnel whose token survives OTA updates, and accept
+#          that token from node-infra over Mender rather than by hand.
 #
-# Token is stored at /data/cloudflared/tunnel-token (survives OTA updates).
-# Service only starts if token file exists and is non-empty.
+# ## How a token reaches this node
 #
-# To enable on a node:
-#   mkdir -p /data/cloudflared
-#   echo "eyJhIjoi..." > /data/cloudflared/tunnel-token
+# The node never asks for a tunnel and holds no Cloudflare credential. It says
+# what its owner wants and reacts to a token appearing:
+#
+#   1. retina-gui writes /data/retina-gui/remote-access-enabled when the owner
+#      turns remote access on, and removes it when they turn it off.
+#   2. mender-inventory-retina-remote-access (see the mender role) reports that
+#      as the `remote_access` inventory attribute, the same way wizard_pending
+#      is already reported.
+#   3. node-infra reads the attribute, creates the tunnel and its Cloudflare
+#      Access application, and uploads two files to the staging path below over
+#      Mender's file transfer: the connector token, and access.json naming the
+#      team domain and this node's Access application.
+#   4. cloudflared-token.path notices either of them, and cloudflared-token.service
+#      installs them to /data and (re)starts the connector.
+#
+# retina-gui verifies Access assertions against access.json, so a node without
+# it refuses every visitor. That is why it is installed first when both arrive
+# together, and why it lands root-owned on /data rather than being read out of
+# the staging directory the `node` user can write to.
+#
+# ## Why a staging path rather than writing /data directly
+#
+# Mender file transfer is chrooted to /home/node and writes as the `node` user
+# (see mender-connect.conf), so it cannot put a root-owned file on /data. The
+# oneshot below is the privileged half: it moves the token where it belongs at
+# 0600 root, then deletes the staged copy so a live tunnel credential is not
+# left sitting in a home directory that customers have SSH access to.
+#
+# An *empty* staged file is the "turn it off" signal, since a deleted file
+# cannot be distinguished from one this unit has already consumed.
+#
+# Setting a token by hand still works and is unchanged:
+#   printf '%s' "eyJhIjoi..." > /data/cloudflared/tunnel-token
 #   chmod 600 /data/cloudflared/tunnel-token
-#   systemctl start cloudflared
+#   systemctl restart cloudflared
 
-# 1. Create /data/cloudflared directory for persistent token storage
+# 1. Persistent token storage
 - name: Create /data/cloudflared directory
   file:
     path: /data/cloudflared
@@ -22,7 +52,20 @@
     owner: root
     group: root
 
-# 2. Create systemd service that reads token from /data
+# 2. Staging directory for the token Mender uploads.
+#
+# Inside the file-transfer chroot and owned by the transfer user, which is what
+# lets node-infra write here at all. Nothing sensitive rests here for long: the
+# oneshot below removes the staged file as soon as it has installed it.
+- name: Create the Mender file transfer staging directory
+  file:
+    path: "/home/{{ default_user_name }}/.retina"
+    state: directory
+    mode: '0700'
+    owner: "{{ default_user_name }}"
+    group: "{{ default_user_group_name }}"
+
+# 3. The connector itself
 - name: Create cloudflared tunnel service
   copy:
     dest: /etc/systemd/system/cloudflared.service
@@ -34,21 +77,130 @@
       Description=Cloudflare Tunnel
       After=network-online.target
       Wants=network-online.target
+      # The token lives on /data, which is its own partition. Without this the
+      # condition below is evaluated against a path that may not be mounted
+      # yet, and the unit silently skips with no retry.
+      RequiresMountsFor=/data
       ConditionFileNotEmpty=/data/cloudflared/tunnel-token
 
       [Service]
       TimeoutStartSec=15
       Type=notify
-      ExecStart=/bin/bash -c '/usr/bin/cloudflared --no-autoupdate tunnel run --token $(cat /data/cloudflared/tunnel-token)'
+      # --token-file, not `--token $(cat ...)`. The token is a live credential
+      # and the command line is world-readable through /proc, on a node whose
+      # owner adds their own SSH keys through the GUI.
+      ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel run \
+        --token-file /data/cloudflared/tunnel-token
       Restart=on-failure
       RestartSec=5s
 
       [Install]
       WantedBy=multi-user.target
 
-# 3. Enable service (will auto-skip on boot if no token file)
 - name: Enable cloudflared service
   file:
     src: /etc/systemd/system/cloudflared.service
     dest: /etc/systemd/system/multi-user.target.wants/cloudflared.service
+    state: link
+
+# 4. Install a staged token, or act on the empty-file "turn it off" signal
+- name: Install the token installer
+  copy:
+    dest: /usr/local/sbin/owl-cloudflared-token
+    mode: '0755'
+    owner: root
+    group: root
+    content: |
+      #!/bin/bash
+      # Move what node-infra staged over Mender into place, then start or stop
+      # the connector to match. See the cloudflared_persistence role for why
+      # this exists rather than node-infra writing /data itself.
+      set -u
+
+      STAGE="/home/{{ default_user_name }}/.retina"
+      LIVE=/data/cloudflared
+
+      # The Access config first, always. It names the team and this node's
+      # Access application, and retina-gui refuses every visitor until it has
+      # them. Installing the token first would bring the hostname up during the
+      # gap, serving a node that can identify nobody: it fails closed rather
+      # than open, but it is an outage nobody needs to have.
+      #
+      # It lands on /data root-owned rather than being read from the staging
+      # directory, because the `node` user can write there. A local user who
+      # could edit it would be naming their own team and audience, and could
+      # then mint assertions this node would believe.
+      if [ -e "$STAGE/access.json" ]; then
+          if [ -s "$STAGE/access.json" ]; then
+              install -m 0600 -o root -g root "$STAGE/access.json" "$LIVE/access.json"
+              echo "Installed Cloudflare Access config"
+          else
+              rm -f "$LIVE/access.json"
+              echo "Cleared Cloudflare Access config"
+          fi
+          rm -f "$STAGE/access.json"
+      fi
+
+      if [ -e "$STAGE/tunnel-token" ]; then
+          if [ -s "$STAGE/tunnel-token" ]; then
+              install -m 0600 -o root -g root "$STAGE/tunnel-token" "$LIVE/tunnel-token"
+              # Deleted rather than left readable: whoever holds this token can
+              # impersonate the tunnel, and the node's owner has shell access.
+              rm -f "$STAGE/tunnel-token"
+              echo "Installed a new tunnel token; restarting cloudflared"
+              systemctl restart cloudflared.service
+          else
+              # Empty file means support access was withdrawn. A *missing* file
+              # cannot mean that, because that is also what a token this unit
+              # has already consumed looks like.
+              rm -f "$STAGE/tunnel-token" "$LIVE/tunnel-token"
+              echo "Tunnel token cleared; stopping cloudflared"
+              systemctl stop cloudflared.service
+          fi
+      fi
+
+- name: Create cloudflared-token service
+  copy:
+    dest: /etc/systemd/system/cloudflared-token.service
+    mode: '0644'
+    owner: root
+    group: root
+    content: |
+      [Unit]
+      Description=Install a Cloudflare tunnel token staged by node-infra
+      RequiresMountsFor=/data
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/owl-cloudflared-token
+
+- name: Create cloudflared-token path unit
+  copy:
+    dest: /etc/systemd/system/cloudflared-token.path
+    mode: '0644'
+    owner: root
+    group: root
+    content: |
+      [Unit]
+      Description=Watch for a tunnel token staged by node-infra
+
+      [Path]
+      # PathExists rather than PathChanged: this also catches a file that
+      # arrived while the node was off, and it is self-limiting because the
+      # service deletes whatever it acts on.
+      #
+      # Both are watched because either can arrive alone. The Access config is
+      # rewritten whenever an application is recreated, which does not change
+      # the connector token, so watching only the token would leave the node
+      # verifying against a stale audience until something else happened to it.
+      PathExists=/home/{{ default_user_name }}/.retina/tunnel-token
+      PathExists=/home/{{ default_user_name }}/.retina/access.json
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Enable cloudflared-token path unit
+  file:
+    src: /etc/systemd/system/cloudflared-token.path
+    dest: /etc/systemd/system/multi-user.target.wants/cloudflared-token.path
     state: link

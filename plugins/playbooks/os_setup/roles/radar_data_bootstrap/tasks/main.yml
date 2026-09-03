@@ -175,11 +175,27 @@
     remote_src: yes
 
 # 10. Configure SSH to read authorized_keys from /data/
+#
+# One key store, and deliberately only one. The home-directory default that
+# used to be listed alongside it (.ssh/authorized_keys) sat inside the chroot
+# Mender file transfer writes into, as the `node` user, so anyone able to
+# transfer a file could write themselves an authorized key and obtain SSH
+# regardless of what the owner's remote shell agreement said.
+#
+# File transfer cannot simply be turned off instead: it is how node-infra
+# delivers the Cloudflare tunnel token, so gating it would make the two owner
+# agreements depend on each other. Removing the second key store is what lets
+# both be true at once.
+#
+# /data/retina-gui/authorized_keys is root-owned and outside every chroot
+# Mender writes to. Verified across the fleet before this changed: no node had
+# a /home/*/.ssh at all, ssh_pub_keys/ bakes nothing into images, and
+# PasswordAuthentication is off, so nothing was relying on the removed path.
 - name: Configure sshd AuthorizedKeysFile for persistent keys
   lineinfile:
     dest: /etc/ssh/sshd_config
     regexp: '^#*\s*AuthorizedKeysFile'
-    line: 'AuthorizedKeysFile /data/retina-gui/authorized_keys .ssh/authorized_keys'
+    line: 'AuthorizedKeysFile /data/retina-gui/authorized_keys'
     state: present
 
 # 11. Cleanup retina-gui
