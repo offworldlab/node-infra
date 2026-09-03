@@ -239,25 +239,33 @@
     update_cache: yes
 
 # 5b. Install Cloudflared for secure tunneling
-- name: Add Cloudflare's GPG key
-  shell: |
-    mkdir -p --mode=0755 /usr/share/keyrings
-    curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg
-  args:
-    creates: /usr/share/keyrings/cloudflare-main.gpg
-
-- name: Add Cloudflare repository
-  apt_repository:
-    repo: "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared bookworm main"
-    state: present
-    filename: cloudflared
+#
+# Installed from the versioned .deb on GitHub rather than Cloudflare's apt
+# repo. That repo carries only whatever Cloudflare shipped most recently - it
+# holds exactly one version and prunes the rest - so an exact pin against it
+# cannot survive their next release. It bought no reproducibility either: the
+# only installable version was always "current". This broke the os-v0.16.0
+# build outright once 2026.8.2 was dropped in favour of 2026.8.3, roughly two
+# weeks after it was pinned.
+#
+# GitHub keeps every release permanently, so pinning there is what the pin was
+# always meant to be: the connector version is a property of the OS release,
+# not of the day the image happened to be built.
+- name: Download the pinned Cloudflared .deb
+  get_url:
+    url: "https://github.com/cloudflare/cloudflared/releases/download/{{ cloudflared_version }}/cloudflared-linux-arm64.deb"
+    dest: "/tmp/cloudflared-{{ cloudflared_version }}-arm64.deb"
+    mode: '0644'
 
 - name: Install Cloudflared
   apt:
-    name: "cloudflared={{ cloudflared_version }}"
+    deb: "/tmp/cloudflared-{{ cloudflared_version }}-arm64.deb"
     state: present
-    allow_downgrade: yes
-    update_cache: yes
+
+- name: Remove the downloaded Cloudflared .deb
+  file:
+    path: "/tmp/cloudflared-{{ cloudflared_version }}-arm64.deb"
+    state: absent
 
 # 5c. Install SDRconnect for standalone SDR analysis
 - name: Install SDRconnect dependencies
