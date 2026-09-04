@@ -103,6 +103,61 @@
     dest: /etc/systemd/system/multi-user.target.wants/cloudflared.service
     state: link
 
+# 3b. A second connector, for nodes that had a hand-built tunnel before this
+#     feature existed.
+#
+#     A node runs one cloudflared, and cloudflared.service above is ours: it
+#     serves the support hostname from /data/cloudflared/tunnel-token. Shipping
+#     it replaced whatever had been serving a hand-built tunnel, so those
+#     tunnels lost their connector on the first update that carried this role.
+#     Their SSH ingress still existed in Cloudflare with nothing answering it.
+#
+#     Restoring one by hand does not hold: the unit lives here on the A/B
+#     rootfs and every update wipes it again. The token does not, because /data
+#     is its own partition, so the node keeps everything needed to reconnect and
+#     loses only the instruction to do so. This is that instruction, shipped.
+#
+#     Installed on every node and started on none, unless the token is there.
+#     ConditionFileNotEmpty makes a node without one skip the unit silently at
+#     boot, which is what conditions are for, so this is inert fleet-wide and
+#     needs no per-node variable, inventory group or exception list.
+- name: Create the development tunnel service
+  copy:
+    dest: /etc/systemd/system/cloudflared-dev.service
+    mode: '0644'
+    owner: root
+    group: root
+    content: |
+      [Unit]
+      Description=Cloudflare Tunnel (hand-built development tunnel)
+      After=network-online.target
+      Wants=network-online.target
+      # Same reasoning as cloudflared.service: the token is on /data, and
+      # without this the condition is evaluated before that is mounted and the
+      # unit skips with no retry.
+      RequiresMountsFor=/data
+      # The opt-in. No token, no tunnel, and nothing to configure anywhere else.
+      ConditionFileNotEmpty=/data/cloudflared-dev/tunnel-token
+
+      [Service]
+      TimeoutStartSec=15
+      Type=notify
+      # --token-file, not `--token $(cat ...)`. The token is a live credential
+      # and the command line is world-readable through /proc.
+      ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel run \
+        --token-file /data/cloudflared-dev/tunnel-token
+      Restart=on-failure
+      RestartSec=5s
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Enable the development tunnel service
+  file:
+    src: /etc/systemd/system/cloudflared-dev.service
+    dest: /etc/systemd/system/multi-user.target.wants/cloudflared-dev.service
+    state: link
+
 # 4. Install a staged token, or act on the empty-file "turn it off" signal
 - name: Install the token installer
   copy:
